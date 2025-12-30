@@ -157,10 +157,124 @@ class SpeechAnalyzer {
   }
 
   /**
-   * Simple speech-to-text transcription
+   * Simple speech-to-text transcription using continuous recognition for long audio
    */
   async transcribe(audioFile) {
-    return this.analyzeWithPronunciation(audioFile, null);
+    return new Promise((resolve, reject) => {
+      const audioConfig = sdk.AudioConfig.fromWavFileInput(fs.readFileSync(audioFile));
+      const speechConfig = sdk.SpeechConfig.fromSubscription(this.speechKey, this.speechRegion);
+
+      speechConfig.speechRecognitionLanguage = 'en-US';
+
+      const recognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
+
+      const results = {
+        transcription: '',
+        confidence: null,
+        duration: null,
+        pronunciationAssessment: null,
+        words: [],
+        phonemes: [],
+        errors: []
+      };
+
+      let allTranscripts = [];
+      let allWords = [];
+      let totalConfidence = 0;
+      let confidenceCount = 0;
+
+      // Recognizing event for partial results (optional, for progress tracking)
+      recognizer.recognizing = (s, e) => {
+        // Can log progress here if needed
+      };
+
+      // Recognized event for final results of each utterance
+      recognizer.recognized = (s, e) => {
+        if (e.result.reason === sdk.ResultReason.RecognizedSpeech) {
+          const text = e.result.text;
+          if (text && text.trim().length > 0) {
+            allTranscripts.push(text);
+
+            // Parse the JSON result to get word-level details
+            try {
+              const detailResult = JSON.parse(e.result.properties.getProperty(
+                sdk.PropertyId.SpeechServiceResponse_JsonResult
+              ));
+
+              if (detailResult.NBest && detailResult.NBest[0]) {
+                const confidence = detailResult.NBest[0].Confidence;
+                if (confidence !== undefined) {
+                  totalConfidence += confidence;
+                  confidenceCount++;
+                }
+
+                if (detailResult.NBest[0].Words) {
+                  detailResult.NBest[0].Words.forEach(word => {
+                    allWords.push({
+                      word: word.Word,
+                      offset: word.Offset,
+                      duration: word.Duration,
+                      confidence: word.Confidence
+                    });
+                  });
+                }
+              }
+            } catch (err) {
+              // Ignore parsing errors for individual results
+            }
+          }
+        } else if (e.result.reason === sdk.ResultReason.NoMatch) {
+          // This can happen for silence or unclear audio
+        }
+      };
+
+      recognizer.canceled = (s, e) => {
+        if (e.reason === sdk.CancellationReason.Error) {
+          results.errors.push(`Error: ${e.errorDetails}`);
+        }
+        recognizer.stopContinuousRecognitionAsync(
+          () => {
+            recognizer.close();
+            resolve(results);
+          },
+          (err) => {
+            recognizer.close();
+            reject(err);
+          }
+        );
+      };
+
+      recognizer.sessionStopped = (s, e) => {
+        recognizer.stopContinuousRecognitionAsync(
+          () => {
+            // Combine all transcripts
+            results.transcription = allTranscripts.join(' ');
+            results.words = allWords;
+            if (confidenceCount > 0) {
+              results.confidence = totalConfidence / confidenceCount;
+            }
+
+            recognizer.close();
+            resolve(results);
+          },
+          (err) => {
+            recognizer.close();
+            reject(err);
+          }
+        );
+      };
+
+      // Start continuous recognition
+      recognizer.startContinuousRecognitionAsync(
+        () => {
+          // Recognition started successfully
+        },
+        (err) => {
+          recognizer.close();
+          reject(err);
+        }
+      );
+    });
   }
 
   /**
