@@ -1,0 +1,18 @@
+{
+  "name": "speak-right",
+  "version": "1.0.0",
+  "description": "Speech analysis tool using Azure Cognitive Services",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "analyze": "node analyze.js"
+  },
+  "keywords": ["speech", "analysis", "azure", "pronunciation"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "microsoft-cognitiveservices-speech-sdk": "^1.38.0",
+    "dotenv": "^16.4.5"
+  }
+}

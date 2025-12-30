@@ -1,0 +1,15 @@
+node_modules/
+.env
+.DS_Store
+
+# Output directory for analysis results
+output/
+
+# Old analysis files (from previous workflow)
+*_analysis.json
+deven.wav
+
+# Uncomment to ignore source audio files if needed
+# *.webm
+# *.mp3
+# *.m4a
