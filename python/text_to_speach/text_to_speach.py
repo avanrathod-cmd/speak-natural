@@ -15,7 +15,7 @@ elevenlabs_client = ElevenLabs(api_key=elevenlabs_api_key)
 pause_ms = 500
 
 def get_audio_from_s3(bucket_name = "speach-analyzer",
-                      object_key = "Conv with Avisha.webm"):
+                    object_key = "Conv with Avisha.webm"):
     response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
     audio_data = response['Body'].read()
     return AudioSegment.from_file(BytesIO(audio_data), format=object_key.split(".")[-1])
@@ -83,7 +83,7 @@ def generate_speech_for_segments(segments, voice_mapping, dir="/home/avanrathod/
 
     for i, segment in enumerate(segments):
         speaker = segment['speaker']
-        text = segment['text']
+        text = segment['ssml']
         voice_id = voice_mapping.get(speaker)
         
         if not voice_id:
@@ -117,7 +117,7 @@ def generate_speech_for_segments(segments, voice_mapping, dir="/home/avanrathod/
     combined.export(out, format="mp3")
     print(f"\nFinal audio saved to: {output_file}")
     print(f"Total duration: {len(combined)/1000:.2f} seconds")
-    return out
+    return out, combined
 
 def generate_voice_with_elevenlabs(text, voice_id):
     return elevenlabs_client.text_to_speech.convert(
