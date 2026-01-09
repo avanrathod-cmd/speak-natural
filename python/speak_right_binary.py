@@ -17,6 +17,8 @@ from text_to_speach.text_to_speach import(
     generate_speech_for_segments
 )
 
+from utils.aws_utils import save_audio_to_s3
+
 def main():
     parser = argparse.ArgumentParser(description="Process audio files for transcription and enhancement")
     parser.add_argument("--bucket", default="speach-analyzer", help="S3 bucket name")
@@ -77,12 +79,20 @@ def process_audio(bucket_name, object_key, transcribe_job_name="speak-right-tran
     print("\n" + "=" * 50)
     print("Step 7: Generate speech for enhanced segments")
     print("=" * 50)
-    final_audio_path = generate_speech_for_segments(enhanced_script, voice_mapping)
+    final_audio_path, audio_seqment = generate_speech_for_segments(enhanced_script, voice_mapping)
     print(f"✓ Final audio generated: {final_audio_path}")
     
     print("\n" + "=" * 50)
     print("Processing Complete!")
     print("=" * 50)
+    
+    save_audio_to_s3(
+        audio_seqment,
+        bucket_name,
+        object_key=f"enhanced_audios/enhanced_{Path(object_key).stem}.mp3",
+        format="mp3"
+    )
+    
 
 if __name__ == "__main__":
     main()

@@ -1,9 +1,18 @@
+
 import ast
 import os
+from sys import path
+from pathlib import Path
 from openai import OpenAI
 from dotenv import load_dotenv
 import boto3
 import json
+
+# Add utils to path
+utils_dir = Path(__file__).parent.parent / "utils"
+path.insert(0, str(utils_dir))
+
+from openapi_utils import query_chatgpt_and_show_output
 
 # Load environment variables
 load_dotenv()
@@ -31,14 +40,13 @@ I have a sales call transcription ssml that needs improvement. Please enhance it
 Original conversation:
 {transcript_segments}
 
-Please provide the enhanced version in the EXACT same format, one line per segment. Do not add any additional commentary, just the enhanced conversation."""
-    response = client.responses.create(
-model="gpt-5-nano",
-input=prompt,
-store=True,
-)
-    print(response.output_text);
-    enhanced_script = response.output_text
+Please provide the enhanced version in the EXACT same format (with the property being in
+double quotes and the  whole script within box brackets), one line per segment. 
+Do not add any additional commentary, just the enhanced conversation."""
+    
+    
+    enhanced_script = query_chatgpt_and_show_output(prompt)
+    print(f"\n\n Enhanced Script:\n {enhanced_script}\n\n")
     return ast.literal_eval(enhanced_script)
 
 def parse_enhanced_script_to_segments(enhanced_script):

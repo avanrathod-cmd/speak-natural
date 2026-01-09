@@ -1,6 +1,7 @@
 import boto3
 import json
-
+from io import BytesIO
+from pydub import AudioSegment
 
 s3_client = boto3.client('s3', region_name = 'ap-south-1')
 def read_json_from_s3(bucket_name = "speach-analyzer",
@@ -15,8 +16,7 @@ def read_json_from_s3(bucket_name = "speach-analyzer",
     """ 
     response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
     content = response['Body'].read().decode('utf-8')
-    json_content = json.loads(content)
-    return json_content
+    return content
 
 def write_to_s3(bucket_name, object_key, content):
     """
@@ -53,4 +53,18 @@ def save_audio_to_s3(audio_segment, bucket_name, object_key, format="mp3"):
     )
     print(f"Saved audio to s3://{bucket_name}/{object_key}")
     
+
+def get_audio_segment_from_s3(bucket_name, object_key):
+    """
+    Retrieve audio file from S3 and return as AudioSegment.
     
+    Args:
+        bucket_name: The S3 bucket name
+        object_key: The S3 object key (path)
+    """
+    
+    response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
+    audio_data = response['Body'].read()
+    
+    audio_segment = AudioSegment.from_file(BytesIO(audio_data))
+    return audio_segment
