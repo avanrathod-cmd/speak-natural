@@ -1,5 +1,10 @@
 import sys
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Add current directory to Python path
 current_dir = Path(__file__).parent
@@ -20,20 +25,59 @@ from text_to_speach.text_to_speach import(
     generate_speech_for_segments
 )
 
-from utils.aws_utils import save_audio_to_s3
+from utils.aws_utils import save_audio_to_s3, s3_client
+
+def upload_local_file_to_s3(local_path, bucket_name, s3_key=None):
+    """
+    Upload a local file to S3.
+
+    Args:
+        local_path: Path to the local file
+        bucket_name: S3 bucket name
+        s3_key: S3 object key (if None, uses the filename)
+
+    Returns:
+        The S3 key where the file was uploaded
+    """
+    if not os.path.exists(local_path):
+        raise FileNotFoundError(f"Local file not found: {local_path}")
+
+    if s3_key is None:
+        s3_key = os.path.basename(local_path)
+
+    print(f"Uploading {local_path} to s3://{bucket_name}/{s3_key}...")
+
+    with open(local_path, 'rb') as file_data:
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=s3_key,
+            Body=file_data
+        )
+
+    print(f"✓ Upload complete: s3://{bucket_name}/{s3_key}")
+    return s3_key
+
 
 def main():
     parser = argparse.ArgumentParser(description="Process audio files for transcription and enhancement")
     parser.add_argument("--bucket", default="speach-analyzer", help="S3 bucket name")
-    parser.add_argument("--key", default="Conv with Avisha.webm", help="S3 object key")
+    parser.add_argument("--key", default="Conv with Avisha.webm", help="S3 object key (for existing S3 files)")
+    parser.add_argument("--local-file", help="Path to local audio file to upload and process")
     parser.add_argument("--job-name", default="avan-job", help="Transcription job name")
-    
+
     args = parser.parse_args()
-    
+
     bucket_name = args.bucket
-    object_key = args.key
     job_name = args.job_name
-    
+
+    # Handle local file upload if provided
+    if args.local_file:
+        # Upload local file to S3
+        object_key = upload_local_file_to_s3(args.local_file, bucket_name)
+    else:
+        # Use existing S3 key
+        object_key = args.key
+
     process_audio(bucket_name, object_key, transcribe_job_name=job_name)
 
 

@@ -37,9 +37,9 @@ def get_speaker_clips(transcript_segments, audio):
         speaker_clips[speaker].append(clip)
     return speaker_clips
 
-def combine_individual_speaker_clips(speaker_clips, dir = "/home/avanrathod/tmp/"):
+def combine_individual_speaker_clips(speaker_clips, dir = None):
     # Combine clips for each speaker until we have enough audio
-    output_dir = dir
+    output_dir = dir if dir else tempfile.gettempdir()
     os.makedirs(output_dir, exist_ok=True)
 
     voice_samples = {}
@@ -77,8 +77,8 @@ def get_voice_mapping_with_elevenlabs(voice_samples):
         print(f"Cloned voice for {speaker} with voice ID: {voice.voice_id}")
     return voice_mapping
 
-def generate_speech_for_segments(segments, voice_mapping, dir="/home/avanrathod/tmp/"):
-    
+def generate_speech_for_segments(segments, voice_mapping, dir=None):
+    dir = dir if dir else tempfile.gettempdir()
     audio_files = []
 
     for i, segment in enumerate(segments):
