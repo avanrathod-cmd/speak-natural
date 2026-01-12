@@ -422,16 +422,16 @@ def generate_comparison_summary_table(data1, data2, label1, label2, output_path)
                 else:
                     cell.set_facecolor('#f9f9f9')
 
-                # Highlight "Winner" column with actual winner name
+                # Highlight "Winner" column - all winners get green
                 if j == 4 and table_data[i][4] not in ['-', '']:
-                    winner_text = table_data[i][4]
-                    # Green for label1, orange for label2
-                    if winner_text == label1:
-                        cell.set_facecolor('#c8e6c9')  # Light green
-                        cell.set_text_props(weight='bold', color='#2e7d32')
-                    elif winner_text == label2:
-                        cell.set_facecolor('#fff9c4')  # Light yellow
-                        cell.set_text_props(weight='bold', color='#f57c00')
+                    cell.set_facecolor('#c8e6c9')  # Light green for all winners
+                    cell.set_text_props(weight='bold', color='#2e7d32', fontsize=10)
+
+                # Also highlight the winner's value in the corresponding data column
+                if table_data[i][4] == label1 and j == 1:  # Highlight label1 column if winner
+                    cell.set_text_props(weight='bold', color='#2e7d32', fontsize=10)
+                elif table_data[i][4] == label2 and j == 2:  # Highlight label2 column if winner
+                    cell.set_text_props(weight='bold', color='#2e7d32', fontsize=10)
 
     plt.title('Detailed Metrics Comparison Table', fontsize=14, fontweight='bold', pad=20)
     plt.savefig(output_path, format='svg', bbox_inches='tight')
