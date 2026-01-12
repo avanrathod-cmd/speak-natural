@@ -39,7 +39,7 @@ def generate_spectrogram(audio_path, output_path):
     plt.xlabel('Time (seconds)', fontsize=12)
     plt.ylabel('Frequency (Hz)', fontsize=12)
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, format='svg', bbox_inches='tight')
     plt.close()
 
     print(f"  ✓ Spectrogram saved to: {output_path}")
@@ -133,7 +133,7 @@ def generate_pitch_plot(coaching_data, output_path):
                 max(pitches) + y_range * 0.3 if pitches else 100)
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, format='svg', bbox_inches='tight')
     plt.close()
 
     print(f"  ✓ Pitch plot saved to: {output_path}")
@@ -174,7 +174,7 @@ def generate_intensity_plot(coaching_data, output_path):
     plt.legend(loc='upper right')
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, format='svg', bbox_inches='tight')
     plt.close()
 
     print(f"  ✓ Intensity plot saved to: {output_path}")
@@ -213,7 +213,7 @@ def generate_combined_plot(coaching_data, output_path):
     ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, format='svg', bbox_inches='tight')
     plt.close()
 
     print(f"  ✓ Combined plot saved to: {output_path}")
@@ -261,7 +261,7 @@ def generate_speech_metrics_chart(coaching_data, output_path):
 
     plt.suptitle('Speech Coaching Metrics Summary', fontsize=14, fontweight='bold', y=1.0)
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.savefig(output_path, format='svg', bbox_inches='tight')
     plt.close()
 
     print(f"  ✓ Metrics chart saved to: {output_path}")
@@ -283,11 +283,11 @@ def generate_all_visualizations(coaching_json_path, audio_path, output_dir):
     print("\nGenerating visualizations...")
 
     # Generate all plots
-    generate_spectrogram(audio_path, output_dir / f"{base_name}_spectrogram.png")
-    generate_pitch_plot(coaching_data, output_dir / f"{base_name}_pitch.png")
-    generate_intensity_plot(coaching_data, output_dir / f"{base_name}_intensity.png")
-    generate_combined_plot(coaching_data, output_dir / f"{base_name}_combined.png")
-    generate_speech_metrics_chart(coaching_data, output_dir / f"{base_name}_metrics.png")
+    generate_spectrogram(audio_path, output_dir / f"{base_name}_spectrogram.svg")
+    generate_pitch_plot(coaching_data, output_dir / f"{base_name}_pitch.svg")
+    generate_intensity_plot(coaching_data, output_dir / f"{base_name}_intensity.svg")
+    generate_combined_plot(coaching_data, output_dir / f"{base_name}_combined.svg")
+    generate_speech_metrics_chart(coaching_data, output_dir / f"{base_name}_metrics.svg")
 
     print(f"\n✅ All visualizations saved to: {output_dir}/")
 
