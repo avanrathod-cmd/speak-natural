@@ -29,8 +29,10 @@ Also note the you onlyhave to rate the salesperson and not the client.
 Dont add any other commentry. 
 """
     response = query_chatgpt_and_show_output(prompt)
-    score_dict = {line.split(':')[0]: int(line.split(':')[1])
-                for line in response.splitlines()}
+    score_dict = {
+        line.split(':')[0]: float(line.split(':')[1]) 
+        for line in response.splitlines()
+        }
     
     print("Conversation Scoring Response:\n", score_dict)
     
