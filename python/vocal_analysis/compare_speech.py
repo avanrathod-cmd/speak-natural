@@ -312,33 +312,49 @@ def generate_comparison_summary_table(data1, data2, label1, label2, output_path)
     ax.axis('tight')
     ax.axis('off')
 
+    # Determine better values with clear indicators
+    def get_better_indicator(is_first_better):
+        """Return label1 or label2 to indicate which is better."""
+        if is_first_better is None:
+            return '-'
+        return label1 if is_first_better else label2
+
+    # Calculate which is better for each metric
+    speaking_rate_better = abs(metrics1['speaking_rate_wpm'] - 150) < abs(metrics2['speaking_rate_wpm'] - 150)
+    total_words_better = metrics1['total_words'] > metrics2['total_words']
+    filler_better = metrics1['filler_word_ratio'] < metrics2['filler_word_ratio']
+    pauses_better = metrics1['pause_count'] < metrics2['pause_count']
+    pitch_range_better = acoustic1['pitch_range_hz'] > acoustic2['pitch_range_hz']
+    intensity_range_better = acoustic1['intensity_range_db'] > acoustic2['intensity_range_db']
+    hnr_better = acoustic1['harmonics_to_noise_ratio_mean_db'] > acoustic2['harmonics_to_noise_ratio_mean_db']
+
     # Prepare table data
     table_data = [
-        ['Metric', label1, label2, 'Difference', 'Better'],
+        ['Metric', label1, label2, 'Difference', 'Winner'],
         ['', '', '', '', ''],
         ['Speaking Rate (WPM)',
          f"{metrics1['speaking_rate_wpm']:.1f}",
          f"{metrics2['speaking_rate_wpm']:.1f}",
          f"{abs(metrics1['speaking_rate_wpm'] - metrics2['speaking_rate_wpm']):.1f}",
-         '→' if abs(metrics1['speaking_rate_wpm'] - 150) < abs(metrics2['speaking_rate_wpm'] - 150) else '←'],
+         get_better_indicator(speaking_rate_better)],
 
         ['Total Words',
          f"{metrics1['total_words']}",
          f"{metrics2['total_words']}",
          f"{abs(metrics1['total_words'] - metrics2['total_words'])}",
-         '→' if metrics1['total_words'] > metrics2['total_words'] else '←'],
+         get_better_indicator(total_words_better)],
 
         ['Filler Words (%)',
          f"{metrics1['filler_word_ratio']*100:.2f}",
          f"{metrics2['filler_word_ratio']*100:.2f}",
          f"{abs(metrics1['filler_word_ratio'] - metrics2['filler_word_ratio'])*100:.2f}",
-         '→' if metrics1['filler_word_ratio'] < metrics2['filler_word_ratio'] else '←'],
+         get_better_indicator(filler_better)],
 
         ['Long Pauses (>0.5s)',
          f"{metrics1['pause_count']}",
          f"{metrics2['pause_count']}",
          f"{abs(metrics1['pause_count'] - metrics2['pause_count'])}",
-         '→' if metrics1['pause_count'] < metrics2['pause_count'] else '←'],
+         get_better_indicator(pauses_better)],
 
         ['', '', '', '', ''],
         ['Pitch Mean (Hz)',
@@ -351,7 +367,7 @@ def generate_comparison_summary_table(data1, data2, label1, label2, output_path)
          f"{acoustic1['pitch_range_hz']:.1f}",
          f"{acoustic2['pitch_range_hz']:.1f}",
          f"{abs(acoustic1['pitch_range_hz'] - acoustic2['pitch_range_hz']):.1f}",
-         '→' if acoustic1['pitch_range_hz'] > acoustic2['pitch_range_hz'] else '←'],
+         get_better_indicator(pitch_range_better)],
 
         ['Intensity Mean (dB)',
          f"{acoustic1['intensity_mean_db']:.1f}",
@@ -363,13 +379,13 @@ def generate_comparison_summary_table(data1, data2, label1, label2, output_path)
          f"{acoustic1['intensity_range_db']:.1f}",
          f"{acoustic2['intensity_range_db']:.1f}",
          f"{abs(acoustic1['intensity_range_db'] - acoustic2['intensity_range_db']):.1f}",
-         '→' if acoustic1['intensity_range_db'] > acoustic2['intensity_range_db'] else '←'],
+         get_better_indicator(intensity_range_better)],
 
         ['Voice Quality (HNR dB)',
          f"{acoustic1['harmonics_to_noise_ratio_mean_db']:.1f}",
          f"{acoustic2['harmonics_to_noise_ratio_mean_db']:.1f}",
          f"{abs(acoustic1['harmonics_to_noise_ratio_mean_db'] - acoustic2['harmonics_to_noise_ratio_mean_db']):.1f}",
-         '→' if acoustic1['harmonics_to_noise_ratio_mean_db'] > acoustic2['harmonics_to_noise_ratio_mean_db'] else '←'],
+         get_better_indicator(hnr_better)],
 
         ['', '', '', '', ''],
         ['Speech Duration (s)',
@@ -406,12 +422,16 @@ def generate_comparison_summary_table(data1, data2, label1, label2, output_path)
                 else:
                     cell.set_facecolor('#f9f9f9')
 
-                # Highlight "Better" column
-                if j == 4 and table_data[i][4] in ['→', '←']:
-                    if table_data[i][4] == '→':
-                        cell.set_facecolor('#c8e6c9')
-                    else:
-                        cell.set_facecolor('#ffccbc')
+                # Highlight "Winner" column with actual winner name
+                if j == 4 and table_data[i][4] not in ['-', '']:
+                    winner_text = table_data[i][4]
+                    # Green for label1, orange for label2
+                    if winner_text == label1:
+                        cell.set_facecolor('#c8e6c9')  # Light green
+                        cell.set_text_props(weight='bold', color='#2e7d32')
+                    elif winner_text == label2:
+                        cell.set_facecolor('#fff9c4')  # Light yellow
+                        cell.set_text_props(weight='bold', color='#f57c00')
 
     plt.title('Detailed Metrics Comparison Table', fontsize=14, fontweight='bold', pad=20)
     plt.savefig(output_path, format='svg', bbox_inches='tight')
