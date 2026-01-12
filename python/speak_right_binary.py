@@ -107,12 +107,13 @@ def process_audio(bucket_name, object_key, transcribe_job_name="speak-right-tran
     enhanced_transcription_ssml = convert_transcription_to_ssml(
         enhanced_video_transcription['results'])
     
-    print(f"""\n\n\n\n score of original conversation: {
-        score_conversation(transcription_ssml)}""")
+    print("\n\n\n\n score of original conversation:")
+    score_conversation(transcription_ssml)
     
-    print(f""" score of enhanced conversation: {
-        score_conversation(enhanced_transcription_ssml)}""")
     
+    print(" score of enhanced conversation:") 
+    
+    score_conversation(enhanced_transcription_ssml)
 
 if __name__ == "__main__":
     main()
