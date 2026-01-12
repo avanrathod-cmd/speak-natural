@@ -47,7 +47,7 @@ def generate_spectrogram(audio_path, output_path):
 
 def generate_pitch_plot(coaching_data, output_path):
     """
-    Generate pitch (F0) contour visualization over time.
+    Generate pitch (F0) contour visualization over time with word labels.
     """
     pitch_contour = coaching_data['acoustic_features']['parselmouth']['pitch_contour']
 
@@ -61,24 +61,77 @@ def generate_pitch_plot(coaching_data, output_path):
     pitch_mean = coaching_data['acoustic_features']['parselmouth']['pitch_mean_hz']
     pitch_std = coaching_data['acoustic_features']['parselmouth']['pitch_std_hz']
 
-    plt.figure(figsize=(14, 5))
-    plt.plot(times, pitches, linewidth=1.5, color='#2E86AB', alpha=0.8)
+    # Create figure with more vertical space for word labels
+    fig, ax = plt.subplots(figsize=(16, 7))
+
+    # Plot pitch contour
+    ax.plot(times, pitches, linewidth=2, color='#2E86AB', alpha=0.9, zorder=3)
 
     # Add mean line
-    plt.axhline(y=pitch_mean, color='red', linestyle='--', linewidth=1,
-                label=f'Mean: {pitch_mean:.1f} Hz', alpha=0.7)
+    ax.axhline(y=pitch_mean, color='red', linestyle='--', linewidth=1,
+                label=f'Mean: {pitch_mean:.1f} Hz', alpha=0.7, zorder=2)
 
     # Add std bands
-    plt.fill_between([times[0], times[-1]],
+    ax.fill_between([times[0], times[-1]],
                      [pitch_mean - pitch_std] * 2,
                      [pitch_mean + pitch_std] * 2,
-                     alpha=0.2, color='red', label=f'±1 SD: {pitch_std:.1f} Hz')
+                     alpha=0.2, color='red', label=f'±1 SD: {pitch_std:.1f} Hz', zorder=1)
 
-    plt.title('Pitch (F0) Contour - Voice Intonation Over Time', fontsize=14, fontweight='bold')
-    plt.xlabel('Time (seconds)', fontsize=12)
-    plt.ylabel('Pitch (Hz)', fontsize=12)
-    plt.legend(loc='upper right')
-    plt.grid(True, alpha=0.3)
+    # Add word labels with band spread visualization
+    word_level_features = coaching_data.get('word_level_analysis', [])
+
+    if word_level_features:
+        # Sample words to avoid overcrowding (show every nth word based on total duration)
+        total_duration = times[-1] if times else 0
+        # Show approximately one word every 2 seconds for readability
+        word_interval = max(1, int(len(word_level_features) / (total_duration / 2)))
+
+        for i, word_data in enumerate(word_level_features):
+            word = word_data['word']
+            start_time = word_data['start_time']
+            end_time = word_data['end_time']
+            word_mid = (start_time + end_time) / 2
+
+            # Get pitch value at word time
+            pitch_at_word = word_data.get('pitch_hz')
+
+            if pitch_at_word and (i % word_interval == 0 or len(word) > 5):
+                # Draw vertical span for word duration (band spread)
+                ax.axvspan(start_time, end_time, alpha=0.1, color='green', zorder=0)
+
+                # Add word label above the pitch line
+                ax.annotate(word,
+                           xy=(word_mid, pitch_at_word),
+                           xytext=(0, 15),
+                           textcoords='offset points',
+                           fontsize=8,
+                           ha='center',
+                           va='bottom',
+                           color='#1a5490',
+                           fontweight='bold',
+                           bbox=dict(boxstyle='round,pad=0.3',
+                                   facecolor='white',
+                                   edgecolor='#2E86AB',
+                                   alpha=0.8,
+                                   linewidth=0.5),
+                           arrowprops=dict(arrowstyle='-',
+                                         connectionstyle='arc3,rad=0',
+                                         color='#2E86AB',
+                                         alpha=0.5,
+                                         linewidth=1),
+                           zorder=4)
+
+    ax.set_title('Pitch (F0) Contour - Voice Intonation Over Time', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Time (seconds)', fontsize=12)
+    ax.set_ylabel('Pitch (Hz)', fontsize=12)
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3, zorder=0)
+
+    # Add more vertical space for labels
+    y_range = max(pitches) - min(pitches) if pitches else 100
+    ax.set_ylim(min(pitches) - y_range * 0.1 if pitches else 0,
+                max(pitches) + y_range * 0.3 if pitches else 100)
+
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
