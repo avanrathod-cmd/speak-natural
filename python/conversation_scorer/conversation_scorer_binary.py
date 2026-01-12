@@ -14,7 +14,8 @@ def process_transcript(name, object_key, bucket_name="speech-analyzer"):
     
     file_uri = f"s3://{bucket_name}/{object_key}"
     transcription_data = read_transcription(job_name=name, file_uri=file_uri)
-    transcrition_ssml = convert_transcription_to_ssml(transcription_data['results'])
+    transcrition_ssml = convert_transcription_to_ssml(
+        transcription_data['results'])
     
     score_conversation(transcrition_ssml)
     

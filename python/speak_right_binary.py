@@ -8,6 +8,9 @@ sys.path.insert(0, str(current_dir))
 # Import from subdirectories
 from speach_to_text.transcribe import read_transcription, convert_transcription_to_ssml
 from transcript_enhancement.enhance_transcript import enhance_with_chatgpt, parse_enhanced_script_to_segments
+from conversation_scorer.conversation_scorer import score_conversation
+
+
 import argparse
 from text_to_speach.text_to_speach import(
     get_audio_from_s3,
@@ -23,7 +26,7 @@ def main():
     parser = argparse.ArgumentParser(description="Process audio files for transcription and enhancement")
     parser.add_argument("--bucket", default="speach-analyzer", help="S3 bucket name")
     parser.add_argument("--key", default="Conv with Avisha.webm", help="S3 object key")
-    parser.add_argument("--job-name", default="speak-right-transcription-job", help="Transcription job name")
+    parser.add_argument("--job-name", default="avan-job", help="Transcription job name")
     
     args = parser.parse_args()
     
@@ -85,13 +88,30 @@ def process_audio(bucket_name, object_key, transcribe_job_name="speak-right-tran
     print("\n" + "=" * 50)
     print("Processing Complete!")
     print("=" * 50)
-    
+    enahnced_audio_object_key = f"enhanced_audios/enhanced_{Path(object_key).stem}.mp3"
     save_audio_to_s3(
         audio_seqment,
         bucket_name,
-        object_key=f"enhanced_audios/enhanced_{Path(object_key).stem}.mp3",
+        object_key=enahnced_audio_object_key,
         format="mp3"
     )
+    
+    # Call conversation scorer 
+    print("\n" + "=" * 50)
+    print("Step 8: Score the conversation")
+    print("=" * 50)
+    enhanced_video_transcription = read_transcription(
+        job_name=f"enhanced-{job_name}",
+        file_uri=f"s3://{bucket_name}/{enahnced_audio_object_key}"
+    )
+    enhanced_transcription_ssml = convert_transcription_to_ssml(
+        enhanced_video_transcription['results'])
+    
+    print(f"""\n\n\n\n score of original conversation: {
+        score_conversation(transcription_ssml)}""")
+    
+    print(f""" score of enhanced conversation: {
+        score_conversation(enhanced_transcription_ssml)}""")
     
 
 if __name__ == "__main__":
