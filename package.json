@@ -8,11 +8,19 @@
     "start": "node index.js",
     "analyze": "node analyze.js"
   },
-  "keywords": ["speech", "analysis", "azure", "pronunciation"],
+  "keywords": [
+    "speech",
+    "analysis",
+    "azure",
+    "pronunciation"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "microsoft-cognitiveservices-speech-sdk": "^1.38.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "microsoft-cognitiveservices-speech-sdk": "^1.38.0"
+  },
+  "devDependencies": {
+    "tailwindcss": "^4.1.18"
   }
 }
