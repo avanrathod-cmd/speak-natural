@@ -173,13 +173,15 @@ Response:
 GET /coaching/{coaching_id}/metrics
 ```
 
+Returns summary metrics with ratings.
+
 Response:
 ```json
 {
   "coaching_id": "coach_a1b2c3d4e5f6",
   "overall_score": 7.5,
   "pace_wpm": 145.8,
-  "pitch_variation": "good",
+  "pitch_variation": "excellent",
   "energy_level": "good",
   "pause_distribution": {
     "pause_count": 12,
@@ -189,7 +191,89 @@ Response:
 }
 ```
 
-### 6. Get Detailed Coaching Feedback
+**Metrics Explained:**
+- **overall_score**: Composite score (0-10) from pace, pitch, energy, fillers, voice quality
+- **pace_wpm**: Speaking rate (ideal: 140-180 WPM)
+- **pitch_variation**: excellent/good/moderate/needs improvement
+- **energy_level**: good/moderate/low
+- **pause_distribution**: Statistics about pause timing and frequency
+
+See [METRICS_GUIDE.md](./METRICS_GUIDE.md) for detailed definitions.
+
+### 6. Get Detailed Metrics with Definitions
+
+```bash
+GET /coaching/{coaching_id}/metrics/detailed
+```
+
+Returns full structured metrics JSON with definitions, raw values, and AI insights.
+
+Response:
+```json
+{
+  "coaching_id": "coach_abc123",
+  "metrics": {
+    "overall_score": 7.5,
+    "pace": {
+      "words_per_minute": 156.3,
+      "rating": "excellent",
+      "definition": "Ideal pace: 140-160 WPM for presentations, 160-180 for conversations"
+    },
+    "pitch_variation": {
+      "range_hz": 112.5,
+      "std_hz": 23.4,
+      "rating": "excellent",
+      "definition": "Good: >100 Hz range with variety; Moderate: 50-100 Hz; Needs improvement: <50 Hz"
+    },
+    "energy_level": {
+      "intensity_mean_db": 68.2,
+      "intensity_std_db": 6.3,
+      "rating": "good",
+      "definition": "Good: >5 dB variation; Moderate: 3-5 dB; Low: <3 dB"
+    },
+    "pause_distribution": {
+      "pause_count": 12,
+      "total_duration_seconds": 18.5,
+      "average_duration_seconds": 1.54,
+      "rating": "good",
+      "definition": "Good: Natural pauses (1-2s) every 10-15 words..."
+    },
+    "filler_words": {
+      "count": 3,
+      "ratio": 0.015,
+      "rating": "excellent",
+      "definition": "Good: <2%; Moderate: 2-5%; Needs improvement: >5%"
+    },
+    "voice_quality": {
+      "harmonics_to_noise_ratio_db": 16.8,
+      "rating": "excellent (clear)",
+      "definition": "Good: >15 dB (clear voice); Moderate: 10-15 dB; Poor: <10 dB"
+    },
+    "ai_insights": {
+      "top_strengths": [
+        "Clear articulation with minimal filler words",
+        "Good pace variation that maintains engagement",
+        "Strategic pauses that emphasize key points"
+      ],
+      "top_improvements": [
+        "Increase pitch variation in the middle section",
+        "Add more energy when transitioning between topics",
+        "Reduce speaking pace slightly in complex explanations"
+      ],
+      "overall_impression": "Strong delivery with excellent clarity and pacing...",
+      "confidence": "high"
+    }
+  }
+}
+```
+
+**Use this endpoint when you need:**
+- Complete rating definitions and thresholds
+- Raw acoustic measurements
+- AI-generated insights (when available)
+- Detailed explanations for frontend display
+
+### 7. Get Detailed Coaching Feedback
 
 ```bash
 GET /coaching/{coaching_id}/feedback
@@ -314,6 +398,9 @@ Each coaching session creates a nested folder structure:
       └── output/
           ├── analysis/
           │   └── coaching_analysis.json
+          │
+          ├── metrics/
+          │   └── structured_metrics.json    # NEW: Structured metrics with ratings
           │
           ├── visualizations/
           │   ├── pitch_contour.svg
