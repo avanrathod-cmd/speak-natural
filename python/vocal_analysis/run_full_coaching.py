@@ -20,9 +20,9 @@ from pathlib import Path
 import os
 
 # Import modules from vocal_analysis
-from analyze_speech import analyze_speech_for_coaching
-from visualize_speech import generate_all_visualizations
-from generate_ssml import (
+from vocal_analysis.analyze_speech import analyze_speech_for_coaching
+from vocal_analysis.visualize_speech import generate_all_visualizations
+from vocal_analysis.generate_ssml import (
     extract_prosody_features,
     format_prosody_for_llm,
     generate_coaching_feedback
