@@ -41,6 +41,7 @@ from api.models import (
 )
 from api.storage_manager import StorageManager
 from services.audio_processor import AudioProcessorService
+from api.auth import get_current_user, get_current_user_optional
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -128,6 +129,24 @@ async def health_check():
     return {"status": "healthy"}
 
 
+@app.get("/auth/verify", tags=["Authentication"])
+async def verify_auth(user: dict = Depends(get_current_user)):
+    """
+    Verify authentication token.
+
+    Use this endpoint to test if your Supabase JWT token is valid.
+
+    Returns:
+        User information from token
+    """
+    return {
+        "authenticated": True,
+        "user_id": user["user_id"],
+        "email": user.get("email"),
+        "role": user.get("role")
+    }
+
+
 @app.post("/auth/signup", response_model=SignupResponse, tags=["Authentication"])
 async def signup(request: SignupRequest):
     """
@@ -156,10 +175,12 @@ async def signup(request: SignupRequest):
 async def upload_audio(
     background_tasks: BackgroundTasks,
     audio_file: UploadFile = File(...),
-    user_id: Optional[str] = Query(None, description="Optional user ID")
+    user: dict = Depends(get_current_user)
 ):
     """
     Upload audio file and start coaching analysis.
+
+    **Authentication Required**: Bearer token from Supabase
 
     Steps:
     1. Generate coaching_id
@@ -169,11 +190,12 @@ async def upload_audio(
 
     Args:
         audio_file: Audio file (WAV, MP3, etc.)
-        user_id: Optional user ID for tracking
+        user: Authenticated user (from JWT token)
 
     Returns:
         Coaching ID and status
     """
+    user_id = user["user_id"]
     # Generate coaching ID
     coaching_id = storage_manager.generate_coaching_id()
 
@@ -217,16 +239,31 @@ async def upload_audio(
 
 
 @app.get("/coaching/{coaching_id}/status", response_model=CoachingStatusResponse, tags=["Coaching"])
-async def get_coaching_status(coaching_id: str):
+async def get_coaching_status(
+    coaching_id: str,
+    user: dict = Depends(get_current_user)
+):
     """
     Get coaching session status.
 
+    **Authentication Required**: Bearer token from Supabase
+
     Args:
         coaching_id: Coaching session ID
+        user: Authenticated user (from JWT token)
 
     Returns:
         Status information
     """
+    metadata = storage_manager.load_session_metadata(coaching_id)
+
+    if not metadata:
+        raise HTTPException(status_code=404, detail=f"Coaching session not found: {coaching_id}")
+
+    # Verify ownership
+    if metadata.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied: not your coaching session")
+
     metadata = storage_manager.load_session_metadata(coaching_id)
 
     if not metadata:
@@ -243,16 +280,28 @@ async def get_coaching_status(coaching_id: str):
 
 
 @app.get("/coaching/{coaching_id}/metrics", response_model=MetricsResponse, tags=["Coaching"])
-async def get_coaching_metrics(coaching_id: str):
+async def get_coaching_metrics(
+    coaching_id: str,
+    user: dict = Depends(get_current_user)
+):
     """
     Get overall speech metrics for a coaching session.
 
+    **Authentication Required**: Bearer token from Supabase
+
     Args:
         coaching_id: Coaching session ID
+        user: Authenticated user (from JWT token)
 
     Returns:
         Speech metrics including score, pace, pitch, energy, pauses
     """
+    # Verify ownership
+    metadata = storage_manager.load_session_metadata(coaching_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail=f"Coaching session not found: {coaching_id}")
+    if metadata.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied: not your coaching session")
     metadata = storage_manager.load_session_metadata(coaching_id)
 
     if not metadata:
@@ -327,16 +376,28 @@ async def get_coaching_metrics(coaching_id: str):
 
 
 @app.get("/coaching/{coaching_id}/metrics/detailed", tags=["Coaching"])
-async def get_detailed_metrics(coaching_id: str):
+async def get_detailed_metrics(
+    coaching_id: str,
+    user: dict = Depends(get_current_user)
+):
     """
     Get detailed structured metrics with definitions and AI insights.
 
+    **Authentication Required**: Bearer token from Supabase
+
     Args:
         coaching_id: Coaching session ID
+        user: Authenticated user (from JWT token)
 
     Returns:
         Full structured metrics JSON with ratings, definitions, and AI analysis
     """
+    # Verify ownership
+    metadata = storage_manager.load_session_metadata(coaching_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail=f"Coaching session not found: {coaching_id}")
+    if metadata.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied: not your coaching session")
     metadata = storage_manager.load_session_metadata(coaching_id)
 
     if not metadata:
@@ -367,16 +428,28 @@ async def get_detailed_metrics(coaching_id: str):
 
 
 @app.get("/coaching/{coaching_id}/feedback", response_model=CoachingFeedbackResponse, tags=["Coaching"])
-async def get_coaching_feedback(coaching_id: str):
+async def get_coaching_feedback(
+    coaching_id: str,
+    user: dict = Depends(get_current_user)
+):
     """
     Get detailed coaching feedback with segments.
 
+    **Authentication Required**: Bearer token from Supabase
+
     Args:
         coaching_id: Coaching session ID
+        user: Authenticated user (from JWT token)
 
     Returns:
         Detailed feedback and segment analysis
     """
+    # Verify ownership
+    metadata = storage_manager.load_session_metadata(coaching_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail=f"Coaching session not found: {coaching_id}")
+    if metadata.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied: not your coaching session")
     metadata = storage_manager.load_session_metadata(coaching_id)
 
     if not metadata:
@@ -437,17 +510,30 @@ async def get_coaching_feedback(coaching_id: str):
 
 
 @app.get("/coaching/{coaching_id}/visualizations/{viz_type}", tags=["Coaching"])
-async def get_visualization(coaching_id: str, viz_type: str):
+async def get_visualization(
+    coaching_id: str,
+    viz_type: str,
+    user: dict = Depends(get_current_user)
+):
     """
     Get visualization file (SVG).
+
+    **Authentication Required**: Bearer token from Supabase
 
     Args:
         coaching_id: Coaching session ID
         viz_type: Visualization type (pitch, intensity, spectrogram, etc.)
+        user: Authenticated user (from JWT token)
 
     Returns:
         SVG file
     """
+    # Verify ownership
+    metadata = storage_manager.load_session_metadata(coaching_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail=f"Coaching session not found: {coaching_id}")
+    if metadata.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied: not your coaching session")
     metadata = storage_manager.load_session_metadata(coaching_id)
 
     if not metadata:
@@ -471,16 +557,28 @@ async def get_visualization(coaching_id: str, viz_type: str):
 
 
 @app.get("/coaching/{coaching_id}/download", tags=["Coaching"])
-async def download_all_results(coaching_id: str):
+async def download_all_results(
+    coaching_id: str,
+    user: dict = Depends(get_current_user)
+):
     """
     Download all results as a zip file.
 
+    **Authentication Required**: Bearer token from Supabase
+
     Args:
         coaching_id: Coaching session ID
+        user: Authenticated user (from JWT token)
 
     Returns:
         Zip file with all results
     """
+    # Verify ownership
+    metadata = storage_manager.load_session_metadata(coaching_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail=f"Coaching session not found: {coaching_id}")
+    if metadata.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied: not your coaching session")
     metadata = storage_manager.load_session_metadata(coaching_id)
 
     if not metadata:
@@ -509,17 +607,30 @@ async def download_all_results(coaching_id: str):
 
 
 @app.delete("/coaching/{coaching_id}", tags=["Coaching"])
-async def delete_coaching_session(coaching_id: str, keep_s3: bool = Query(True)):
+async def delete_coaching_session(
+    coaching_id: str,
+    user: dict = Depends(get_current_user),
+    keep_s3: bool = Query(True)
+):
     """
     Delete coaching session.
 
+    **Authentication Required**: Bearer token from Supabase
+
     Args:
         coaching_id: Coaching session ID
+        user: Authenticated user (from JWT token)
         keep_s3: Whether to keep S3 files (default: True)
 
     Returns:
         Deletion status
     """
+    # Verify ownership
+    metadata = storage_manager.load_session_metadata(coaching_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail=f"Coaching session not found: {coaching_id}")
+    if metadata.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied: not your coaching session")
     metadata = storage_manager.load_session_metadata(coaching_id)
 
     if not metadata:
@@ -534,28 +645,35 @@ async def delete_coaching_session(coaching_id: str, keep_s3: bool = Query(True))
 
 
 @app.get("/sessions", tags=["Coaching"])
-async def list_sessions(user_id: Optional[str] = Query(None)):
+async def list_sessions(user: dict = Depends(get_current_user)):
     """
-    List all coaching sessions (optionally filtered by user).
+    List all coaching sessions for the authenticated user.
+
+    **Authentication Required**: Bearer token from Supabase
 
     Args:
-        user_id: Optional user ID filter
+        user: Authenticated user (from JWT token)
 
     Returns:
-        List of coaching sessions
+        List of user's coaching sessions
     """
+    user_id = user["user_id"]
     all_sessions = storage_manager.list_sessions()
 
     sessions_info = []
     for coaching_id in all_sessions:
         metadata = storage_manager.load_session_metadata(coaching_id)
-        if user_id is None or metadata.get("user_id") == user_id:
+        if metadata.get("user_id") == user_id:
             sessions_info.append({
                 "coaching_id": coaching_id,
                 "status": metadata.get("status"),
                 "created_at": metadata.get("created_at"),
-                "completed_at": metadata.get("completed_at")
+                "completed_at": metadata.get("completed_at"),
+                "audio_filename": metadata.get("audio_filename")
             })
+
+    # Sort by created_at descending (newest first)
+    sessions_info.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
     return {"sessions": sessions_info, "count": len(sessions_info)}
 

@@ -19,6 +19,34 @@ User Request → FastAPI Server → Audio Processor Service
             Return coaching_id to user
 ```
 
+## Authentication
+
+**All API endpoints require authentication** via Supabase JWT tokens.
+
+### Quick Start
+
+Frontend handles authentication with Supabase:
+
+```javascript
+// 1. Sign in with Google (frontend)
+const { data } = await supabase.auth.signInWithOAuth({
+  provider: 'google'
+})
+
+// 2. Get token
+const { data: { session } } = await supabase.auth.getSession()
+const token = session?.access_token
+
+// 3. Use token in API requests
+fetch('http://localhost:8000/upload-audio', {
+  headers: {
+    'Authorization': `Bearer ${token}`
+  }
+})
+```
+
+See [AUTH_GUIDE.md](./AUTH_GUIDE.md) for complete authentication documentation.
+
 ## Setup
 
 ### 1. Install Dependencies
@@ -65,6 +93,27 @@ uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 
 ## API Endpoints
 
+### Authentication Endpoints
+
+#### Verify Token
+
+```bash
+GET /auth/verify
+Authorization: Bearer <token>
+```
+
+Test if your Supabase JWT token is valid.
+
+Response:
+```json
+{
+  "authenticated": true,
+  "user_id": "uuid-from-supabase",
+  "email": "user@example.com",
+  "role": "authenticated"
+}
+```
+
 ### 1. Health Check
 
 ```bash
@@ -105,31 +154,43 @@ Response:
 
 ```bash
 POST /upload-audio
+Authorization: Bearer <token>
 Content-Type: multipart/form-data
 
 audio_file: <file>
-user_id: optional_user_id
 ```
+
+**Authentication Required**: Include Supabase JWT token
 
 **cURL Example:**
 ```bash
+TOKEN="your-supabase-jwt-token"
+
 curl -X POST "http://localhost:8000/upload-audio" \
-  -H "accept: application/json" \
-  -F "audio_file=@/path/to/audio.wav" \
-  -F "user_id=user_123"
+  -H "Authorization: Bearer $TOKEN" \
+  -F "audio_file=@/path/to/audio.wav"
 ```
 
 **Python Example:**
 ```python
 import requests
 
-url = "http://localhost:8000/upload-audio"
-files = {"audio_file": open("audio.wav", "rb")}
-data = {"user_id": "user_123"}
+# Token from Supabase frontend
+token = "your-supabase-jwt-token"
 
-response = requests.post(url, files=files, data=data)
-result = response.json()
-coaching_id = result["coaching_id"]
+headers = {
+    "Authorization": f"Bearer {token}"
+}
+
+files = {"audio_file": open("audio.wav", "rb")}
+
+response = requests.post(
+    "http://localhost:8000/upload-audio",
+    headers=headers,
+    files=files
+)
+
+coaching_id = response.json()["coaching_id"]
 print(f"Coaching ID: {coaching_id}")
 ```
 
@@ -147,7 +208,10 @@ Response:
 
 ```bash
 GET /coaching/{coaching_id}/status
+Authorization: Bearer <token>
 ```
+
+**Authentication Required**: Must be the user who created the session
 
 Response:
 ```json
@@ -468,9 +532,17 @@ python -m services.audio_processor path/to/audio.wav \
 import requests
 import time
 
+# Get token from Supabase session (frontend)
+token = "your-supabase-jwt-token"
+
+headers = {
+    "Authorization": f"Bearer {token}"
+}
+
 # 1. Upload audio
 upload_response = requests.post(
     "http://localhost:8000/upload-audio",
+    headers=headers,
     files={"audio_file": open("speech.wav", "rb")}
 )
 coaching_id = upload_response.json()["coaching_id"]
@@ -479,7 +551,8 @@ print(f"Coaching ID: {coaching_id}")
 # 2. Poll status until complete
 while True:
     status_response = requests.get(
-        f"http://localhost:8000/coaching/{coaching_id}/status"
+        f"http://localhost:8000/coaching/{coaching_id}/status",
+        headers=headers
     )
     status = status_response.json()["status"]
     print(f"Status: {status}")
@@ -494,14 +567,16 @@ while True:
 
 # 3. Get metrics
 metrics = requests.get(
-    f"http://localhost:8000/coaching/{coaching_id}/metrics"
+    f"http://localhost:8000/coaching/{coaching_id}/metrics",
+    headers=headers
 ).json()
 print(f"Overall Score: {metrics['overall_score']}/10")
 print(f"Speaking Pace: {metrics['pace_wpm']} WPM")
 
 # 4. Get feedback
 feedback = requests.get(
-    f"http://localhost:8000/coaching/{coaching_id}/feedback"
+    f"http://localhost:8000/coaching/{coaching_id}/feedback",
+    headers=headers
 ).json()
 print("\nStrong Points:")
 for point in feedback["strong_points"]:
@@ -514,7 +589,8 @@ for improvement in feedback["improvements"]:
 # 5. Download visualizations
 for viz_type in ["pitch", "intensity", "spectrogram"]:
     viz_data = requests.get(
-        f"http://localhost:8000/coaching/{coaching_id}/visualizations/{viz_type}"
+        f"http://localhost:8000/coaching/{coaching_id}/visualizations/{viz_type}",
+        headers=headers
     )
     with open(f"{viz_type}.svg", "wb") as f:
         f.write(viz_data.content)

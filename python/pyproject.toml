@@ -33,4 +33,8 @@ dependencies = [
 
     # AI/ML
     "anthropic>=0.7.0",
+
+    # Authentication
+    "supabase>=2.0.0",
+    "pyjwt>=2.8.0",
 ]
