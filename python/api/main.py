@@ -15,11 +15,15 @@ import tempfile
 import shutil
 from typing import Optional
 import json
+from dotenv import load_dotenv
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Query
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add parent directory to path
 current_dir = Path(__file__).parent.parent

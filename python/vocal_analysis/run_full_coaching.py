@@ -18,6 +18,10 @@ import sys
 import json
 from pathlib import Path
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import modules from vocal_analysis
 from vocal_analysis.analyze_speech import analyze_speech_for_coaching
