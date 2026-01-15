@@ -19,7 +19,7 @@ This API provides a modular, production-ready interface to the SpeakRight speech
 
 ```bash
 # Install dependencies
-pip install -r api_requirements.txt
+uv sync
 
 # Configure environment
 cp .env.example .env

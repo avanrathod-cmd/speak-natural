@@ -25,7 +25,7 @@ User Request → FastAPI Server → Audio Processor Service
 
 ```bash
 cd python
-pip install -r api_requirements.txt
+uv sync
 ```
 
 ### 2. Configure Environment Variables

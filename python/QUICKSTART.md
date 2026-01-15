@@ -4,7 +4,7 @@
 
 ```bash
 cd python
-pip install -r api_requirements.txt
+uv sync
 ```
 
 ## 2. Configure Environment
