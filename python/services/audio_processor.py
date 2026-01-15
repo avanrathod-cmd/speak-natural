@@ -27,6 +27,7 @@ sys.path.insert(0, str(current_dir))
 from speach_to_text.transcribe import read_transcription, transcribe_audio_from_s3
 from vocal_analysis.run_full_coaching import run_full_coaching_pipeline
 from utils.aws_utils import s3_client
+from services.metrics_generator import generate_structured_metrics
 
 
 class AudioProcessorService:
@@ -242,7 +243,7 @@ class AudioProcessorService:
         s3_transcript_uri = self.upload_file_to_s3(local_transcript_path, s3_transcript_key)
 
         # Step 4: Run vocal analysis
-        print("\n[4/5] Running vocal analysis and coaching...")
+        print("\n[4/6] Running vocal analysis and coaching...")
         analysis_output_dir = os.path.join(request_dir, "output")
 
         analysis_results = self.run_vocal_analysis(
@@ -252,8 +253,40 @@ class AudioProcessorService:
             skip_coaching=skip_coaching
         )
 
-        # Step 5: Upload all results to S3
-        print("\n[5/5] Uploading results to S3...")
+        # Step 5: Generate structured metrics
+        print("\n[5/6] Generating structured metrics...")
+        coaching_analysis_path = analysis_results.get("analysis")
+        coaching_feedback_path = analysis_results.get("coaching_feedback")
+
+        if coaching_analysis_path and os.path.exists(coaching_analysis_path):
+            try:
+                structured_metrics = generate_structured_metrics(
+                    coaching_analysis_path=coaching_analysis_path,
+                    coaching_feedback_path=coaching_feedback_path if coaching_feedback_path and os.path.exists(coaching_feedback_path) else None
+                )
+
+                # Save structured metrics
+                metrics_path = os.path.join(analysis_output_dir, "metrics", "structured_metrics.json")
+                os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
+
+                with open(metrics_path, 'w') as f:
+                    json.dump(structured_metrics, f, indent=2)
+
+                print(f"✓ Structured metrics saved to: {metrics_path}")
+                print(f"  Overall Score: {structured_metrics['overall_score']}/10")
+                print(f"  Pace: {structured_metrics['pace']['rating']}")
+                print(f"  Pitch Variation: {structured_metrics['pitch_variation']['rating']}")
+                print(f"  Energy Level: {structured_metrics['energy_level']['rating']}")
+
+                analysis_results["structured_metrics"] = metrics_path
+
+            except Exception as e:
+                print(f"⚠ Warning: Could not generate structured metrics: {e}")
+                import traceback
+                traceback.print_exc()
+
+        # Step 6: Upload all results to S3
+        print("\n[6/6] Uploading results to S3...")
         s3_output_prefix = f"{request_id}/output"
         uploaded_files = self.upload_directory_to_s3(analysis_output_dir, s3_output_prefix)
 

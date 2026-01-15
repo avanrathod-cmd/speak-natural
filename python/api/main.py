@@ -261,7 +261,32 @@ async def get_coaching_metrics(coaching_id: str):
     if metadata.get("status") != "completed":
         raise HTTPException(status_code=400, detail="Coaching analysis not yet completed")
 
-    # Load analysis results
+    # Try to load structured metrics first (new format)
+    try:
+        session_dir = storage_manager.get_session_directory(coaching_id)
+        structured_metrics_path = os.path.join(session_dir, "output", "metrics", "structured_metrics.json")
+
+        if os.path.exists(structured_metrics_path):
+            with open(structured_metrics_path, 'r') as f:
+                structured_metrics = json.load(f)
+
+            return MetricsResponse(
+                coaching_id=coaching_id,
+                overall_score=structured_metrics["overall_score"],
+                pace_wpm=structured_metrics["pace"]["words_per_minute"],
+                pitch_variation=structured_metrics["pitch_variation"]["rating"],
+                energy_level=structured_metrics["energy_level"]["rating"],
+                pause_distribution={
+                    "pause_count": structured_metrics["pause_distribution"]["pause_count"],
+                    "total_pause_duration": structured_metrics["pause_distribution"]["total_duration_seconds"],
+                    "average_pause": structured_metrics["pause_distribution"]["average_duration_seconds"]
+                }
+            )
+
+    except Exception as e:
+        print(f"Could not load structured metrics: {e}, falling back to legacy calculation")
+
+    # Fallback: Load analysis results and calculate on-the-fly (old format)
     try:
         analysis_path = metadata["analysis"]["analysis"]
         with open(analysis_path, 'r') as f:
@@ -299,6 +324,46 @@ async def get_coaching_metrics(coaching_id: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading metrics: {str(e)}")
+
+
+@app.get("/coaching/{coaching_id}/metrics/detailed", tags=["Coaching"])
+async def get_detailed_metrics(coaching_id: str):
+    """
+    Get detailed structured metrics with definitions and AI insights.
+
+    Args:
+        coaching_id: Coaching session ID
+
+    Returns:
+        Full structured metrics JSON with ratings, definitions, and AI analysis
+    """
+    metadata = storage_manager.load_session_metadata(coaching_id)
+
+    if not metadata:
+        raise HTTPException(status_code=404, detail=f"Coaching session not found: {coaching_id}")
+
+    if metadata.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="Coaching analysis not yet completed")
+
+    try:
+        session_dir = storage_manager.get_session_directory(coaching_id)
+        structured_metrics_path = os.path.join(session_dir, "output", "metrics", "structured_metrics.json")
+
+        if not os.path.exists(structured_metrics_path):
+            raise HTTPException(status_code=404, detail="Structured metrics not available")
+
+        with open(structured_metrics_path, 'r') as f:
+            structured_metrics = json.load(f)
+
+        return {
+            "coaching_id": coaching_id,
+            "metrics": structured_metrics
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading detailed metrics: {str(e)}")
 
 
 @app.get("/coaching/{coaching_id}/feedback", response_model=CoachingFeedbackResponse, tags=["Coaching"])
