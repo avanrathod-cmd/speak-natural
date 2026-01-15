@@ -247,6 +247,19 @@ Downloads a ZIP file containing:
 - Coaching feedback (Markdown)
 - Prosody data
 
+**Example:**
+```bash
+# Download with proper filename
+curl "http://localhost:8000/coaching/coach_abc123/download" \
+  -o results.zip
+
+# Or let curl use the server's filename
+curl -OJ "http://localhost:8000/coaching/coach_abc123/download"
+
+# Extract the zip file
+unzip results.zip
+```
+
 ### 9. List All Sessions
 
 ```bash

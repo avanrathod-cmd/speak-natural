@@ -434,7 +434,10 @@ async def download_all_results(coaching_id: str):
         return FileResponse(
             path=zip_path,
             media_type="application/zip",
-            filename=f"{coaching_id}_results.zip"
+            filename=f"{coaching_id}_results.zip",
+            headers={
+                "Content-Disposition": f"attachment; filename={coaching_id}_results.zip"
+            }
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating zip: {str(e)}")
