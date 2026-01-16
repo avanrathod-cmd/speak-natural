@@ -7,7 +7,8 @@ import {
   PlayingVersion,
   TranscriptSegment,
   DetailedMetricsResponse,
-  QualitySegment
+  QualitySegment,
+  SessionItem
 } from './types';
 import {
   mockTranscriptSegments,
@@ -21,13 +22,17 @@ import './App.css';
 export default function SpeechCoachApp() {
   const { user, loading: authLoading, signInWithGoogle, signOut, getAccessToken } = useAuth();
 
-  const [activeView, setActiveView] = useState<ViewType>('upload');
+  const [activeView, setActiveView] = useState<ViewType>('sessions');
   const [expandedSection, setExpandedSection] = useState('feedback');
   const [playingSegment, setPlayingSegment] = useState<number | null>(null);
   const [playingVersion, setPlayingVersion] = useState<PlayingVersion | null>(null);
   const [hoveredSegment, setHoveredSegment] = useState<number | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+
+  // Sessions state
+  const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
 
   // Backend integration state
   const [currentCoachingId, setCurrentCoachingId] = useState<string | null>(null);
@@ -44,6 +49,29 @@ export default function SpeechCoachApp() {
   const [waveformQualitySegments, setWaveformQualitySegments] = useState<QualitySegment[]>([]);
   const [isLoadingWaveform, setIsLoadingWaveform] = useState(false);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+
+  const loadSessions = useCallback(async () => {
+    try {
+      setIsLoadingSessions(true);
+      const token = await getAccessToken();
+      if (!token) return;
+
+      const sessionsData = await apiService.getSessions(token);
+      setSessions(sessionsData.sessions);
+    } catch (error) {
+      console.error('Error loading sessions:', error);
+      setSessions([]);
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  }, [getAccessToken]);
+
+  // Load sessions when component mounts or when switching to sessions view
+  useEffect(() => {
+    if (user && activeView === 'sessions') {
+      loadSessions();
+    }
+  }, [user, activeView, loadSessions]);
 
   const loadTranscript = useCallback(async (coachingId: string) => {
     try {
@@ -907,6 +935,110 @@ export default function SpeechCoachApp() {
     );
   };
 
+  const SessionsView = () => {
+    const handleSessionSelect = async (coachingId: string) => {
+      setCurrentCoachingId(coachingId);
+      await loadMetrics(coachingId);
+    };
+
+    const formatDate = (dateString: string) => {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    };
+
+    const getStatusColor = (status: string) => {
+      switch (status) {
+        case 'completed':
+          return 'bg-green-100 text-green-800';
+        case 'processing':
+          return 'bg-blue-100 text-blue-800';
+        case 'failed':
+          return 'bg-red-100 text-red-800';
+        default:
+          return 'bg-gray-100 text-gray-800';
+      }
+    };
+
+    return (
+      <div className="max-w-6xl mx-auto">
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-900">My Coaching Sessions</h2>
+              <p className="text-gray-600 mt-1">View and analyze your past sessions</p>
+            </div>
+            <button
+              onClick={() => setActiveView('upload')}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Upload className="w-4 h-4" />
+              New Session
+            </button>
+          </div>
+
+          {isLoadingSessions ? (
+            <div className="py-12 text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <div className="text-gray-600">Loading sessions...</div>
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="py-12 text-center">
+              <MessageSquare className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No sessions yet</h3>
+              <p className="text-gray-600 mb-6">Upload your first audio to get started with speech coaching</p>
+              <button
+                onClick={() => setActiveView('upload')}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Upload className="w-5 h-5" />
+                Upload Audio
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {sessions.map((session) => (
+                <div
+                  key={session.coaching_id}
+                  onClick={() => handleSessionSelect(session.coaching_id)}
+                  className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-all"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3">
+                      <h3 className="font-semibold text-gray-900">{session.coaching_id}</h3>
+                      <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(
+                          session.status
+                        )}`}
+                      >
+                        {session.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
+                      <span>Created: {formatDate(session.created_at)}</span>
+                      {session.completed_at && (
+                        <span>Completed: {formatDate(session.completed_at)}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <PlayCircle className="w-5 h-5 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-600">View Analysis</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
@@ -930,10 +1062,12 @@ export default function SpeechCoachApp() {
         </div>
 
         <div className="flex gap-3 mb-8">
+          <NavButton view="sessions" label="My Sessions" />
           <NavButton view="upload" label="Upload/Record" />
           <NavButton view="analysis" label="Analysis & Coaching" />
         </div>
 
+        {activeView === 'sessions' && <SessionsView />}
         {activeView === 'upload' && <UploadView />}
         {activeView === 'analysis' && <AnalysisView />}
       </div>

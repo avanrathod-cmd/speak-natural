@@ -84,6 +84,18 @@ export interface FeedbackResponse {
   segments: FeedbackSegment[];
 }
 
+export interface SessionsResponse {
+  sessions: SessionItem[];
+  count: number;
+}
+
+export interface SessionItem {
+  coaching_id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  created_at: string;
+  completed_at?: string;
+}
+
 export interface FeedbackSegment {
   segment_id: number;
   text: string;
@@ -205,5 +217,5 @@ export interface AuthContextType {
 }
 
 // Component State Types
-export type ViewType = 'upload' | 'analysis';
+export type ViewType = 'upload' | 'analysis' | 'sessions';
 export type PlayingVersion = 'original' | 'improved';

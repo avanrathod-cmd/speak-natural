@@ -6,6 +6,7 @@ import {
   FeedbackResponse,
   WaveformResponse,
   TranscriptResponse,
+  SessionsResponse,
 } from '../types';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -153,6 +154,20 @@ class ApiService {
 
     if (!response.ok) {
       throw new Error(`Auth verification failed: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  async getSessions(token: string): Promise<SessionsResponse> {
+    const response = await fetch(`${API_URL}/sessions`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get sessions: ${response.statusText}`);
     }
 
     return response.json();
