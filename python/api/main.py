@@ -42,6 +42,7 @@ from api.models import (
 from api.storage_manager import StorageManager
 from services.audio_processor import AudioProcessorService
 from api.auth import get_current_user, get_current_user_optional
+from services.waveform_generator import generate_waveform_data
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -554,6 +555,100 @@ async def get_visualization(
         media_type="image/svg+xml",
         filename=viz_files[0].name
     )
+
+
+@app.get("/coaching/{coaching_id}/waveform", tags=["Coaching"])
+async def get_waveform(
+    coaching_id: str,
+    user: dict = Depends(get_current_user),
+    samples: int = Query(1000, ge=100, le=5000, description="Number of waveform samples (100-5000)")
+):
+    """
+    Get waveform visualization data with quality-coded segments.
+
+    **Authentication Required**: Bearer token from Supabase
+
+    Returns waveform peaks and color-coded segments based on speech quality.
+    Segments are colored based on:
+    - Green (#10b981): Normal speech
+    - Orange (#f59e0b): Filler words or long pauses
+    - Blue (#3b82f6): Low confidence words
+
+    Args:
+        coaching_id: Coaching session ID
+        user: Authenticated user (from JWT token)
+        samples: Number of waveform peaks to return (default: 1000)
+
+    Returns:
+        Waveform data with quality segments
+
+    Example Response:
+    {
+      "duration_seconds": 18.5,
+      "sample_rate": 44100,
+      "waveform_data": {
+        "peaks": [0.2, 0.5, 0.8, ...],
+        "sample_count": 1000,
+        "sample_interval_ms": 18.5
+      },
+      "quality_segments": [
+        {
+          "start_time": 0.0,
+          "end_time": 3.2,
+          "quality": "good",
+          "color": "#10b981",
+          "reason": "normal"
+        }
+      ]
+    }
+    """
+    # Verify ownership
+    metadata = storage_manager.load_session_metadata(coaching_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail=f"Coaching session not found: {coaching_id}")
+    if metadata.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied: not your coaching session")
+
+    if metadata.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="Coaching analysis not yet completed")
+
+    try:
+        # Check if waveform data already cached
+        session_dir = storage_manager.get_session_directory(coaching_id)
+        waveform_cache_path = os.path.join(session_dir, "output", "waveform", f"waveform_{samples}.json")
+
+        if os.path.exists(waveform_cache_path):
+            # Return cached data
+            with open(waveform_cache_path, 'r') as f:
+                return json.load(f)
+
+        # Generate waveform data
+        audio_path = metadata.get("audio_path")
+        analysis_path = metadata["analysis"]["analysis"]
+
+        if not audio_path or not os.path.exists(audio_path):
+            raise HTTPException(status_code=404, detail="Original audio file not found")
+
+        waveform_data = generate_waveform_data(
+            audio_path=audio_path,
+            coaching_analysis_path=analysis_path,
+            target_samples=samples
+        )
+
+        # Cache the result
+        os.makedirs(os.path.dirname(waveform_cache_path), exist_ok=True)
+        with open(waveform_cache_path, 'w') as f:
+            json.dump(waveform_data, f)
+
+        return {
+            "coaching_id": coaching_id,
+            **waveform_data
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating waveform: {str(e)}")
 
 
 @app.get("/coaching/{coaching_id}/download", tags=["Coaching"])

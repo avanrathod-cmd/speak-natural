@@ -337,10 +337,90 @@ Response:
 - AI-generated insights (when available)
 - Detailed explanations for frontend display
 
-### 7. Get Detailed Coaching Feedback
+### 7. Get Waveform Visualization Data
+
+```bash
+GET /coaching/{coaching_id}/waveform?samples=1000
+Authorization: Bearer <token>
+```
+
+Returns audio waveform data with color-coded quality segments for interactive visualization.
+
+**Query Parameters:**
+- `samples`: Number of waveform peaks (100-5000, default: 1000)
+
+**Response:**
+```json
+{
+  "coaching_id": "coach_abc123",
+  "duration_seconds": 18.5,
+  "sample_rate": 44100,
+  "waveform_data": {
+    "peaks": [0.2, 0.5, 0.8, 0.6, ...],
+    "sample_count": 1000,
+    "sample_interval_ms": 18.5
+  },
+  "quality_segments": [
+    {
+      "start_time": 0.0,
+      "end_time": 3.2,
+      "quality": "good",
+      "color": "#10b981",
+      "reason": "normal"
+    },
+    {
+      "start_time": 3.2,
+      "end_time": 9.5,
+      "quality": "warning",
+      "color": "#f59e0b",
+      "reason": "filler_word"
+    },
+    {
+      "start_time": 9.5,
+      "end_time": 18.5,
+      "quality": "good",
+      "color": "#10b981",
+      "reason": "normal"
+    }
+  ]
+}
+```
+
+**Quality Segment Colors:**
+- `#10b981` (Green): Normal speech
+- `#f59e0b` (Orange): Filler words or long pauses (>2s)
+- `#3b82f6` (Blue): Low confidence words
+
+**Features:**
+- Automatically downsamples audio to requested sample count
+- Normalized amplitude values (0.0 to 1.0)
+- Results cached for faster subsequent requests
+- Different sample counts cached separately
+
+**Usage:**
+```javascript
+// Fetch waveform data
+const response = await fetch(
+  `http://localhost:8000/coaching/${coaching_id}/waveform?samples=1000`,
+  { headers: { 'Authorization': `Bearer ${token}` } }
+)
+const { waveform_data, quality_segments } = await response.json()
+
+// Render waveform with quality colors
+waveform_data.peaks.forEach((peak, i) => {
+  const time = (i / waveform_data.sample_count) * duration_seconds
+  const segment = quality_segments.find(s =>
+    time >= s.start_time && time < s.end_time
+  )
+  drawBar(i, peak, segment.color)
+})
+```
+
+### 8. Get Detailed Coaching Feedback
 
 ```bash
 GET /coaching/{coaching_id}/feedback
+Authorization: Bearer <token>
 ```
 
 Response:
@@ -381,10 +461,11 @@ curl "http://localhost:8000/coaching/coach_abc123/visualizations/pitch" \
   --output pitch_chart.svg
 ```
 
-### 8. Download All Results
+### 9. Download All Results
 
 ```bash
 GET /coaching/{coaching_id}/download
+Authorization: Bearer <token>
 ```
 
 Downloads a ZIP file containing:
@@ -408,10 +489,11 @@ curl -OJ "http://localhost:8000/coaching/coach_abc123/download"
 unzip results.zip
 ```
 
-### 9. List All Sessions
+### 10. List All Sessions
 
 ```bash
-GET /sessions?user_id=optional_user_id
+GET /sessions
+Authorization: Bearer <token>
 ```
 
 Response:
@@ -429,10 +511,11 @@ Response:
 }
 ```
 
-### 10. Delete Session
+### 11. Delete Session
 
 ```bash
 DELETE /coaching/{coaching_id}?keep_s3=true
+Authorization: Bearer <token>
 ```
 
 Response:
@@ -472,6 +555,10 @@ Each coaching session creates a nested folder structure:
           │   ├── spectrogram.svg
           │   ├── formant_plot.svg
           │   └── pause_distribution.svg
+          │
+          ├── waveform/                   # NEW: Waveform cache
+          │   ├── waveform_1000.json      # Cached at different sample rates
+          │   └── waveform_2000.json
           │
           └── coaching/
               ├── coaching_feedback.md
