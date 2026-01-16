@@ -17,7 +17,7 @@ from typing import Optional
 import json
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Query, Depends
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -34,6 +34,7 @@ from api.models import (
     CoachingStatusResponse,
     MetricsResponse,
     SegmentResponse,
+    TranscriptWithSegmentsResponse,
     CoachingFeedbackResponse,
     ErrorResponse,
     SignupRequest,
@@ -43,6 +44,7 @@ from api.storage_manager import StorageManager
 from services.audio_processor import AudioProcessorService
 from api.auth import get_current_user, get_current_user_optional
 from services.waveform_generator import generate_waveform_data
+from services.segment_generator import generate_segments_with_audio
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -411,11 +413,56 @@ async def get_detailed_metrics(
         session_dir = storage_manager.get_session_directory(coaching_id)
         structured_metrics_path = os.path.join(session_dir, "output", "metrics", "structured_metrics.json")
 
-        if not os.path.exists(structured_metrics_path):
-            raise HTTPException(status_code=404, detail="Structured metrics not available")
+        # Check if cached locally
+        if os.path.exists(structured_metrics_path):
+            with open(structured_metrics_path, 'r') as f:
+                structured_metrics = json.load(f)
+            return {
+                "coaching_id": coaching_id,
+                "metrics": structured_metrics
+            }
 
-        with open(structured_metrics_path, 'r') as f:
-            structured_metrics = json.load(f)
+        # Try to download from S3
+        try:
+            s3_key = f"{coaching_id}/output/metrics/structured_metrics.json"
+            response = audio_processor.s3_client.get_object(
+                Bucket=audio_processor.bucket_name,
+                Key=s3_key
+            )
+            structured_metrics = json.loads(response['Body'].read())
+
+            # Cache locally
+            os.makedirs(os.path.dirname(structured_metrics_path), exist_ok=True)
+            with open(structured_metrics_path, 'w') as f:
+                json.dump(structured_metrics, f, indent=2)
+
+            return {
+                "coaching_id": coaching_id,
+                "metrics": structured_metrics
+            }
+        except Exception as s3_error:
+            print(f"Could not fetch from S3: {s3_error}")
+
+        # Generate on-demand if not available
+        print(f"Generating structured metrics on-demand for {coaching_id}")
+        from services.metrics_generator import generate_structured_metrics
+
+        analysis_path = metadata["analysis"]["analysis"]
+        coaching_feedback_path = metadata["analysis"].get("coaching_feedback")
+
+        structured_metrics = generate_structured_metrics(
+            coaching_analysis_path=analysis_path,
+            coaching_feedback_path=coaching_feedback_path if coaching_feedback_path and os.path.exists(coaching_feedback_path) else None
+        )
+
+        # Save and upload
+        os.makedirs(os.path.dirname(structured_metrics_path), exist_ok=True)
+        with open(structured_metrics_path, 'w') as f:
+            json.dump(structured_metrics, f, indent=2)
+
+        # Upload to S3
+        s3_key = f"{coaching_id}/output/metrics/structured_metrics.json"
+        audio_processor.upload_file_to_s3(structured_metrics_path, s3_key)
 
         return {
             "coaching_id": coaching_id,
@@ -425,6 +472,8 @@ async def get_detailed_metrics(
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error loading detailed metrics: {str(e)}")
 
 
@@ -649,6 +698,153 @@ async def get_waveform(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating waveform: {str(e)}")
+
+
+@app.get("/coaching/{coaching_id}/transcript", response_model=TranscriptWithSegmentsResponse, tags=["Coaching"])
+async def get_transcript_with_segments(
+    coaching_id: str,
+    user: dict = Depends(get_current_user),
+    max_segments: int = Query(6, ge=1, le=10, description="Maximum number of segments to return")
+):
+    """
+    Get interactive transcript with audio segments.
+
+    **Authentication Required**: Bearer token from Supabase
+
+    Selects interesting segments from the speech (issues or good examples) and
+    provides both original and AI-improved audio for each segment.
+
+    Segments are selected based on:
+    - Filler words (um, uh, like, etc.)
+    - Pace issues (too fast or too slow)
+    - Low confidence transcription
+    - Good examples of clear speech
+
+    Args:
+        coaching_id: Coaching session ID
+        user: Authenticated user (from JWT token)
+        max_segments: Maximum number of segments (default: 6, max: 10)
+
+    Returns:
+        List of segments with original and improved audio URLs
+
+    Example Response:
+    {
+      "coaching_id": "coach_abc123",
+      "segments": [
+        {
+          "segment_id": 1,
+          "start_time": 2.5,
+          "end_time": 7.8,
+          "duration": 5.3,
+          "text": "So um I think that we should like consider this option",
+          "word_count": 10,
+          "severity": "warning",
+          "issues": [
+            {
+              "type": "filler-words",
+              "description": "Contains 3 filler word(s)",
+              "tip": "Try pausing instead of using filler words"
+            }
+          ],
+          "original_audio_url": "https://s3.../segment_1.wav",
+          "improved_audio_url": "https://s3.../segment_1_improved.wav"
+        }
+      ],
+      "segment_count": 6
+    }
+    """
+    # Verify ownership
+    metadata = storage_manager.load_session_metadata(coaching_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail=f"Coaching session not found: {coaching_id}")
+    if metadata.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied: not your coaching session")
+
+    if metadata.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="Coaching analysis not yet completed")
+
+    try:
+        # Check if segments are already generated
+        session_dir = storage_manager.get_session_directory(coaching_id)
+        segments_cache_path = os.path.join(session_dir, "output", "segments", f"segments_{max_segments}.json")
+
+        if os.path.exists(segments_cache_path):
+            # Return cached segments
+            with open(segments_cache_path, 'r') as f:
+                cached_data = json.load(f)
+                return TranscriptWithSegmentsResponse(
+                    coaching_id=coaching_id,
+                    segments=cached_data["segments"],
+                    segment_count=len(cached_data["segments"])
+                )
+
+        # Generate segments
+        audio_path = metadata.get("audio_path")
+        analysis_path = metadata["analysis"]["analysis"]
+
+        if not audio_path or not os.path.exists(audio_path):
+            raise HTTPException(status_code=404, detail="Original audio file not found")
+
+        segments_output_dir = os.path.join(session_dir, "output", "segments")
+        os.makedirs(segments_output_dir, exist_ok=True)
+
+        # Generate segments with audio
+        segments = generate_segments_with_audio(
+            audio_path=audio_path,
+            coaching_analysis_path=analysis_path,
+            output_dir=segments_output_dir,
+            max_segments=max_segments
+        )
+
+        # Upload segment audio files to S3 and generate URLs
+        for segment in segments:
+            segment_id = segment['segment_id']
+
+            # Upload original audio
+            if segment.get('original_audio_path') and os.path.exists(segment['original_audio_path']):
+                s3_key_original = f"{coaching_id}/segments/original/segment_{segment_id}.wav"
+                audio_processor.s3_client.upload_file(
+                    segment['original_audio_path'],
+                    audio_processor.bucket_name,
+                    s3_key_original
+                )
+                segment['original_audio_url'] = f"https://{audio_processor.bucket_name}.s3.amazonaws.com/{s3_key_original}"
+
+            # Upload improved audio
+            if segment.get('improved_audio_path') and os.path.exists(segment['improved_audio_path']):
+                s3_key_improved = f"{coaching_id}/segments/improved/segment_{segment_id}.wav"
+                audio_processor.s3_client.upload_file(
+                    segment['improved_audio_path'],
+                    audio_processor.bucket_name,
+                    s3_key_improved
+                )
+                segment['improved_audio_url'] = f"https://{audio_processor.bucket_name}.s3.amazonaws.com/{s3_key_improved}"
+
+            # Add duration field
+            segment['duration'] = round(segment['end_time'] - segment['start_time'], 2)
+
+        # Cache the segments
+        cache_data = {
+            "coaching_id": coaching_id,
+            "segments": segments,
+            "segment_count": len(segments)
+        }
+        with open(segments_cache_path, 'w') as f:
+            json.dump(cache_data, f)
+
+        return TranscriptWithSegmentsResponse(
+            coaching_id=coaching_id,
+            segments=segments,
+            segment_count=len(segments)
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error generating segments: {str(e)}")
 
 
 @app.get("/coaching/{coaching_id}/download", tags=["Coaching"])

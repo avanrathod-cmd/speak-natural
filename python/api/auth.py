@@ -2,30 +2,42 @@
 Supabase authentication middleware and utilities.
 
 Handles JWT token verification from Supabase frontend authentication.
+Supports ES256 (Elliptic Curve) tokens using JWKS.
 """
 
 import os
 import jwt
-from typing import Optional
+import requests
+from typing import Optional, Dict
 from fastapi import HTTPException, Header, Depends
 from datetime import datetime
+from jwt import PyJWKClient
+from functools import lru_cache
 
 
 class SupabaseAuth:
     """Supabase authentication handler for backend verification."""
 
     def __init__(self):
-        """Initialize Supabase auth with JWT secret."""
-        self.jwt_secret = os.getenv('SUPABASE_JWT_SECRET')
+        """Initialize Supabase auth with JWKS client."""
         self.supabase_url = os.getenv('SUPABASE_URL')
         self.supabase_anon_key = os.getenv('SUPABASE_ANON_KEY')
 
-        if not self.jwt_secret:
-            print("⚠️  Warning: SUPABASE_JWT_SECRET not set. Authentication will not work.")
+        if not self.supabase_url:
+            print("⚠️  Warning: SUPABASE_URL not set. Authentication will not work.")
+            self.jwks_client = None
+        else:
+            # Initialize JWKS client to fetch public keys from Supabase
+            jwks_url = f"{self.supabase_url}/auth/v1/.well-known/jwks.json"
+            self.jwks_client = PyJWKClient(jwks_url)
+            print(f"✅ Supabase auth initialized with JWKS from {jwks_url}")
 
     def verify_token(self, token: str) -> dict:
         """
         Verify JWT token from Supabase frontend.
+
+        Supports both ES256 (Elliptic Curve) and HS256 tokens.
+        Uses JWKS (JSON Web Key Set) to fetch public keys for verification.
 
         Args:
             token: JWT token from Authorization header
@@ -36,31 +48,36 @@ class SupabaseAuth:
         Raises:
             HTTPException: If token is invalid or expired
         """
-        if not self.jwt_secret:
+        if not self.jwks_client:
             raise HTTPException(
                 status_code=500,
-                detail="Server authentication not configured"
+                detail="Server authentication not configured (missing SUPABASE_URL)"
             )
 
         try:
-            # Decode JWT token
+            # Get the signing key from JWKS
+            signing_key = self.jwks_client.get_signing_key_from_jwt(token)
+
+            # Decode JWT token with public key
             payload = jwt.decode(
                 token,
-                self.jwt_secret,
-                algorithms=["HS256"],
-                audience="authenticated"
+                signing_key.key,
+                algorithms=["ES256", "RS256", "HS256"],  # Support multiple algorithms
+                audience="authenticated",
+                options={
+                    "verify_signature": True,
+                    "verify_exp": True,
+                    "verify_aud": True
+                }
             )
-
-            # Check expiration
-            exp = payload.get('exp')
-            if exp and datetime.fromtimestamp(exp) < datetime.now():
-                raise HTTPException(
-                    status_code=401,
-                    detail="Token expired"
-                )
 
             return payload
 
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=401,
+                detail="Token expired"
+            )
         except jwt.InvalidTokenError as e:
             raise HTTPException(
                 status_code=401,

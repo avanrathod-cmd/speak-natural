@@ -41,10 +41,24 @@ class SegmentResponse(BaseModel):
     start_time: float
     end_time: float
     duration: float
-    transcript: str
+    text: str = Field(..., description="Segment transcript text")
+    word_count: int
+    severity: str = Field(..., description="Severity: good, warning, or error")
+    severity_score: float
+    quality_score: float
+    is_exemplary: bool
+    issues: List[Dict] = Field(default_factory=list, description="List of detected issues")
+    primary_issue: Optional[Dict] = None
+    metrics: Dict = Field(..., description="Segment-level metrics (pace, filler ratio, confidence)")
     original_audio_url: Optional[str] = None
     improved_audio_url: Optional[str] = None
-    feedback: Optional[str] = None
+
+
+class TranscriptWithSegmentsResponse(BaseModel):
+    """Response model for interactive transcript with audio segments."""
+    coaching_id: str
+    segments: List[SegmentResponse] = Field(..., description="Selected interesting segments with audio")
+    segment_count: int
 
 
 class CoachingFeedbackResponse(BaseModel):

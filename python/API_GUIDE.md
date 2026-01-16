@@ -416,7 +416,134 @@ waveform_data.peaks.forEach((peak, i) => {
 })
 ```
 
-### 8. Get Detailed Coaching Feedback
+### 8. Get Interactive Transcript with Audio Segments
+
+```bash
+GET /coaching/{coaching_id}/transcript?max_segments=6
+Authorization: Bearer <token>
+```
+
+Returns selected interesting segments from the speech with both original and AI-improved audio clips. Great for creating an interactive transcript where users can hear and compare original vs. improved versions.
+
+**Query Parameters:**
+- `max_segments`: Maximum number of segments to return (1-10, default: 6)
+
+**Segments are selected based on:**
+- Filler words (um, uh, like, etc.)
+- Pace issues (too fast: >180 WPM, too slow: <100 WPM)
+- Low confidence transcription (<0.7)
+- Good examples of clear speech (pace 140-180 WPM, high confidence >0.9)
+
+**Response:**
+```json
+{
+  "coaching_id": "coach_abc123",
+  "segments": [
+    {
+      "segment_id": 1,
+      "start_time": 2.5,
+      "end_time": 7.8,
+      "duration": 5.3,
+      "text": "So um I think that we should like consider this option",
+      "word_count": 10,
+      "severity": "warning",
+      "severity_score": 6.0,
+      "quality_score": 0,
+      "is_exemplary": false,
+      "issues": [
+        {
+          "type": "filler-words",
+          "description": "Contains 3 filler word(s)",
+          "tip": "Try pausing instead of using filler words"
+        }
+      ],
+      "primary_issue": {
+        "type": "filler-words",
+        "description": "Contains 3 filler word(s)",
+        "tip": "Try pausing instead of using filler words"
+      },
+      "metrics": {
+        "pace_wpm": 113.2,
+        "filler_ratio": 0.3,
+        "confidence": 0.942
+      },
+      "original_audio_url": "https://speach-analyzer.s3.amazonaws.com/coach_abc123/segments/original/segment_1.wav",
+      "improved_audio_url": "https://speach-analyzer.s3.amazonaws.com/coach_abc123/segments/improved/segment_1.wav"
+    },
+    {
+      "segment_id": 2,
+      "start_time": 15.2,
+      "end_time": 21.5,
+      "duration": 6.3,
+      "text": "The key advantage is the flexibility it provides",
+      "word_count": 9,
+      "severity": "good",
+      "severity_score": 0,
+      "quality_score": 25.0,
+      "is_exemplary": true,
+      "issues": [],
+      "primary_issue": null,
+      "metrics": {
+        "pace_wpm": 85.7,
+        "filler_ratio": 0.0,
+        "confidence": 0.98
+      },
+      "original_audio_url": "https://speach-analyzer.s3.amazonaws.com/coach_abc123/segments/original/segment_2.wav",
+      "improved_audio_url": "https://speach-analyzer.s3.amazonaws.com/coach_abc123/segments/improved/segment_2.wav"
+    }
+  ],
+  "segment_count": 6
+}
+```
+
+**Segment Severity Levels:**
+- `good`: No significant issues (pace 100-180 WPM, confidence >0.7, no filler words)
+- `warning`: Minor issues (severity_score 1-5)
+- `error`: Major issues (severity_score >5)
+
+**Improved Audio Features:**
+- Filler words removed
+- Pacing adjustments for too-fast segments (adds natural pauses)
+- Generated using ElevenLabs TTS with configurable voice
+- Same text content, just better delivery
+
+**Results Caching:**
+- Segments cached locally after first generation
+- Different `max_segments` values cached separately
+- Segment audio files uploaded to S3 once and reused
+
+**Usage:**
+```javascript
+// Fetch segments
+const response = await fetch(
+  `http://localhost:8000/coaching/${coaching_id}/transcript?max_segments=6`,
+  { headers: { 'Authorization': `Bearer ${token}` } }
+)
+const { segments } = await response.json()
+
+// Play original vs improved audio
+segments.forEach(segment => {
+  console.log(`Segment ${segment.segment_id}: ${segment.text}`)
+  console.log(`Issues: ${segment.issues.map(i => i.description).join(', ')}`)
+
+  // Create audio players
+  const originalAudio = new Audio(segment.original_audio_url)
+  const improvedAudio = new Audio(segment.improved_audio_url)
+
+  // Play comparison
+  originalAudio.play()
+  originalAudio.onended = () => improvedAudio.play()
+})
+```
+
+**Configuration:**
+Set `ELEVENLABS_VOICE_ID` in `.env` to customize the voice used for improved audio:
+```bash
+ELEVENLABS_API_KEY=your_api_key
+ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM  # Rachel voice
+```
+
+### 9. Get Detailed Coaching Feedback
 
 ```bash
 GET /coaching/{coaching_id}/feedback
@@ -442,7 +569,7 @@ Response:
 }
 ```
 
-### 7. Get Visualizations
+### 10. Get Visualizations
 
 ```bash
 GET /coaching/{coaching_id}/visualizations/{viz_type}
@@ -461,7 +588,7 @@ curl "http://localhost:8000/coaching/coach_abc123/visualizations/pitch" \
   --output pitch_chart.svg
 ```
 
-### 9. Download All Results
+### 11. Download All Results
 
 ```bash
 GET /coaching/{coaching_id}/download
@@ -489,7 +616,7 @@ curl -OJ "http://localhost:8000/coaching/coach_abc123/download"
 unzip results.zip
 ```
 
-### 10. List All Sessions
+### 12. List All Sessions
 
 ```bash
 GET /sessions
@@ -511,7 +638,7 @@ Response:
 }
 ```
 
-### 11. Delete Session
+### 13. Delete Session
 
 ```bash
 DELETE /coaching/{coaching_id}?keep_s3=true
