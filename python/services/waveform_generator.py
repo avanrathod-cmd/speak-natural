@@ -108,8 +108,10 @@ def generate_quality_segments(analysis: Dict) -> List[Dict]:
     Returns:
         List of quality segments with time ranges and colors
     """
-    # Get word-level data
+    # Get word-level data (handle both formats)
     words = analysis.get('words', [])
+    if not words:
+        words = analysis.get('word_level_analysis', [])
     speech_metrics = analysis.get('speech_metrics', {})
 
     if not words:

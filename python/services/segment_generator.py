@@ -34,7 +34,10 @@ def select_interesting_segments(
     Returns:
         List of selected segments with metadata
     """
+    # Try both 'words' and 'word_level_analysis' keys
     words = analysis.get('words', [])
+    if not words:
+        words = analysis.get('word_level_analysis', [])
 
     if not words:
         return []

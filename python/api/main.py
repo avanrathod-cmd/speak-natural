@@ -45,6 +45,7 @@ from services.audio_processor import AudioProcessorService
 from api.auth import get_current_user, get_current_user_optional
 from services.waveform_generator import generate_waveform_data
 from services.segment_generator import generate_segments_with_audio
+from utils.aws_utils import s3_client
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -425,7 +426,7 @@ async def get_detailed_metrics(
         # Try to download from S3
         try:
             s3_key = f"{coaching_id}/output/metrics/structured_metrics.json"
-            response = audio_processor.s3_client.get_object(
+            response = s3_client.get_object(
                 Bucket=audio_processor.bucket_name,
                 Key=s3_key
             )
@@ -804,21 +805,23 @@ async def get_transcript_with_segments(
             # Upload original audio
             if segment.get('original_audio_path') and os.path.exists(segment['original_audio_path']):
                 s3_key_original = f"{coaching_id}/segments/original/segment_{segment_id}.wav"
-                audio_processor.s3_client.upload_file(
-                    segment['original_audio_path'],
-                    audio_processor.bucket_name,
-                    s3_key_original
-                )
+                with open(segment['original_audio_path'], 'rb') as f:
+                    s3_client.put_object(
+                        Bucket=audio_processor.bucket_name,
+                        Key=s3_key_original,
+                        Body=f
+                    )
                 segment['original_audio_url'] = f"https://{audio_processor.bucket_name}.s3.amazonaws.com/{s3_key_original}"
 
             # Upload improved audio
             if segment.get('improved_audio_path') and os.path.exists(segment['improved_audio_path']):
                 s3_key_improved = f"{coaching_id}/segments/improved/segment_{segment_id}.wav"
-                audio_processor.s3_client.upload_file(
-                    segment['improved_audio_path'],
-                    audio_processor.bucket_name,
-                    s3_key_improved
-                )
+                with open(segment['improved_audio_path'], 'rb') as f:
+                    s3_client.put_object(
+                        Bucket=audio_processor.bucket_name,
+                        Key=s3_key_improved,
+                        Body=f
+                    )
                 segment['improved_audio_url'] = f"https://{audio_processor.bucket_name}.s3.amazonaws.com/{s3_key_improved}"
 
             # Add duration field

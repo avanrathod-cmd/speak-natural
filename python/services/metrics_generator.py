@@ -38,8 +38,21 @@ def generate_structured_metrics(
     pace_wpm = speech_metrics['speaking_rate_wpm']
     filler_ratio = speech_metrics['filler_word_ratio']
     pause_count = speech_metrics['pause_count']
-    total_pause_duration = speech_metrics['total_pause_duration_seconds']
-    average_pause = speech_metrics['average_pause_seconds']
+
+    # Handle different pause data formats
+    if 'total_pause_duration_seconds' in speech_metrics:
+        total_pause_duration = speech_metrics['total_pause_duration_seconds']
+        average_pause = speech_metrics['average_pause_seconds']
+    else:
+        # Calculate from pauses list if available
+        pauses = speech_metrics.get('pauses', [])
+        if pauses:
+            total_pause_duration = sum(p.get('duration', 0) for p in pauses)
+            average_pause = total_pause_duration / len(pauses) if pauses else 0
+        else:
+            # No pause data available
+            total_pause_duration = 0
+            average_pause = 0
 
     pitch_range_hz = acoustic_features['parselmouth']['pitch_range_hz']
     pitch_std = acoustic_features['parselmouth']['pitch_std_hz']
@@ -318,7 +331,7 @@ Format as JSON:
 
     try:
         response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-opus-4-5-20251101",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )
