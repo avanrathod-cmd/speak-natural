@@ -811,7 +811,15 @@ async def get_transcript_with_segments(
                         Key=s3_key_original,
                         Body=f
                     )
-                segment['original_audio_url'] = f"https://{audio_processor.bucket_name}.s3.amazonaws.com/{s3_key_original}"
+                # Generate presigned URL (valid for 24 hours)
+                segment['original_audio_url'] = s3_client.generate_presigned_url(
+                    'get_object',
+                    Params={
+                        'Bucket': audio_processor.bucket_name,
+                        'Key': s3_key_original
+                    },
+                    ExpiresIn=86400  # 24 hours
+                )
 
             # Upload improved audio
             if segment.get('improved_audio_path') and os.path.exists(segment['improved_audio_path']):
@@ -822,7 +830,15 @@ async def get_transcript_with_segments(
                         Key=s3_key_improved,
                         Body=f
                     )
-                segment['improved_audio_url'] = f"https://{audio_processor.bucket_name}.s3.amazonaws.com/{s3_key_improved}"
+                # Generate presigned URL (valid for 24 hours)
+                segment['improved_audio_url'] = s3_client.generate_presigned_url(
+                    'get_object',
+                    Params={
+                        'Bucket': audio_processor.bucket_name,
+                        'Key': s3_key_improved
+                    },
+                    ExpiresIn=86400  # 24 hours
+                )
 
             # Add duration field
             segment['duration'] = round(segment['end_time'] - segment['start_time'], 2)
