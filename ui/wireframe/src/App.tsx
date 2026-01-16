@@ -84,24 +84,28 @@ export default function SpeechCoachApp() {
   }, [getAccessToken]);
 
   const loadMetrics = useCallback(async (coachingId: string) => {
-    try {
-      setIsLoadingMetrics(true);
-      const token = await getAccessToken();
-      if (!token) return;
+    const token = await getAccessToken();
+    if (!token) return;
 
+    // Load metrics (don't block on failure)
+    setIsLoadingMetrics(true);
+    try {
       const detailedMetrics = await apiService.getDetailedMetrics(coachingId, token);
       setMetrics(detailedMetrics);
-
-      // Load transcript and waveform data
-      loadTranscript(coachingId);
-      loadWaveform(coachingId);
-
-      setActiveView('analysis');
     } catch (error) {
-      console.error('Error loading metrics:', error);
+      console.error('Error loading detailed metrics (non-blocking):', error);
+      // Set default metrics so UI can still render
+      setMetrics(null);
     } finally {
       setIsLoadingMetrics(false);
     }
+
+    // Load transcript and waveform independently (in parallel)
+    loadTranscript(coachingId);
+    loadWaveform(coachingId);
+
+    // Always switch to analysis view
+    setActiveView('analysis');
   }, [getAccessToken, loadTranscript, loadWaveform]);
 
   // Poll for processing status
