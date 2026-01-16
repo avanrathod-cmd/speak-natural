@@ -1,10 +1,10 @@
 # API Changes Required for Full Frontend Integration
 
-This document outlines the API endpoints that are **NOT yet available** in the backend but are required for full functionality of the Speech Coach AI frontend application.
+This document outlines the API endpoints status for the Speech Coach AI frontend application.
 
 ## Current Status
 
-### ✅ Available APIs (Already Implemented)
+### ✅ Available APIs (Implemented)
 - `POST /upload-audio` - Upload audio file
 - `GET /coaching/{id}/status` - Get processing status
 - `GET /coaching/{id}/metrics` - Get overall metrics
@@ -13,12 +13,18 @@ This document outlines the API endpoints that are **NOT yet available** in the b
 - `GET /coaching/{id}/visualizations/{type}` - Get visualization SVGs
 - `GET /coaching/{id}/download` - Download all results as ZIP
 - `GET /auth/verify` - Verify authentication token
+- **✅ NEW:** `GET /coaching/{id}/waveform?samples=1000` - Get waveform visualization data
+- **✅ NEW:** `GET /coaching/{id}/transcript?max_segments=6` - Get interactive transcript with audio segments
 
 ---
 
 ## ❌ Missing APIs (Need Implementation)
 
 ### 1. Interactive Transcript with Segment-Level Audio
+
+**STATUS: ✅ IMPLEMENTED** (as of latest backend update)
+
+The `/coaching/{id}/transcript` endpoint now provides:
 
 **Endpoint:** `GET /coaching/{coaching_id}/transcript`
 
@@ -174,6 +180,8 @@ This document outlines the API endpoints that are **NOT yet available** in the b
 
 ### 3. Waveform Visualization Data
 
+**STATUS: ✅ IMPLEMENTED** (as of latest backend update)
+
 **Endpoint:** `GET /coaching/{coaching_id}/waveform`
 
 **Purpose:** Provide data for rendering an interactive audio waveform with color-coded quality segments
@@ -308,10 +316,12 @@ This document outlines the API endpoints that are **NOT yet available** in the b
 
 ## Implementation Priority
 
-### High Priority (Core Features)
-1. **Interactive Transcript with Segment Audio** - Critical for main user workflow
-2. **Waveform Visualization Data** - Enhances user experience significantly
-3. **Audio Playback URLs** - Basic functionality for full audio playback
+### ✅ Completed (High Priority)
+1. **✅ Interactive Transcript with Segment Audio** - IMPLEMENTED - Critical for main user workflow
+2. **✅ Waveform Visualization Data** - IMPLEMENTED - Enhances user experience significantly
+
+### High Priority (Remaining)
+3. **Audio Playback URLs** - Basic functionality for full audio playback (partially covered by transcript segments)
 
 ### Medium Priority (Enhanced Features)
 4. **Progress Tracker Data** - Motivates users, tracks improvement
@@ -412,16 +422,21 @@ MIN_SEGMENT_DURATION=5
 
 ## Frontend Integration Notes
 
-The frontend is currently using **mock data** for:
-- Interactive transcript segments (`src/data/mockData.ts` - `mockTranscriptSegments`)
-- Progress tracker (`src/data/mockData.ts` - `mockProgressData`)
-- Waveform visualization (`src/data/mockData.ts` - `mockWaveformSegments`)
+### ✅ Integrated with Real APIs
+- **Interactive transcript segments** - Now using `apiService.getTranscript()` with real S3 audio URLs
+- **Waveform visualization** - Now using `apiService.getWaveform()` with real peak data and quality segments
+- Audio playback working from S3 URLs (original and improved versions)
 
-Once the above APIs are implemented, update:
-- `src/services/api.ts` - Add new API methods
-- `src/types/index.ts` - Add response types if needed
-- `src/App.tsx` - Replace mock data with API calls
-- Remove mock data imports and display warnings
+### Still Using Mock Data
+- **Progress tracker** (`src/data/mockData.ts` - `mockProgressData`) - Backend API not available yet
+- Fallback to mock waveform if API call fails
+
+### Completed Integration Steps
+- ✅ `src/services/api.ts` - Added `getWaveform()` and `getTranscript()` methods
+- ✅ `src/types/index.ts` - Added `WaveformResponse`, `TranscriptResponse`, and related types
+- ✅ `src/App.tsx` - Integrated real data loading and display
+- ✅ `src/data/mockData.ts` - Added conversion helpers for API responses
+- ✅ Audio playback from S3 URLs working
 
 ---
 
@@ -458,3 +473,14 @@ Once implemented, test:
 - Practice Session API: **3-4 days** (audio comparison algorithms)
 
 **Total: 10-15 days** for full implementation
+
+### ✅ COMPLETED:
+- Interactive Transcript API: **DONE** (~5 days)
+- Waveform Data API: **DONE** (~2 days)
+- **7 days completed out of 15 estimated**
+
+### Remaining:
+- Audio Playback URLs: **Partially done** (covered by transcript segments)
+- Progress Tracker API: ~2-3 days
+- Practice Session API: ~3-4 days
+- **~6-8 days remaining for full feature set**

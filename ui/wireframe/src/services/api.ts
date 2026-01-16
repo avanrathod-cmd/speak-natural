@@ -4,6 +4,8 @@ import {
   MetricsResponse,
   DetailedMetricsResponse,
   FeedbackResponse,
+  WaveformResponse,
+  TranscriptResponse,
 } from '../types';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -83,6 +85,34 @@ class ApiService {
 
     if (!response.ok) {
       throw new Error(`Failed to get feedback: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  async getWaveform(coachingId: string, token: string, samples: number = 1000): Promise<WaveformResponse> {
+    const response = await fetch(`${API_URL}/coaching/${coachingId}/waveform?samples=${samples}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get waveform: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  async getTranscript(coachingId: string, token: string, maxSegments: number = 6): Promise<TranscriptResponse> {
+    const response = await fetch(`${API_URL}/coaching/${coachingId}/transcript?max_segments=${maxSegments}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get transcript: ${response.statusText}`);
     }
 
     return response.json();

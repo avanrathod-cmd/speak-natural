@@ -1,4 +1,11 @@
-import { TranscriptSegment, ProgressTrackerData, WaveformSegment } from '../types';
+import {
+  TranscriptSegment,
+  ProgressTrackerData,
+  WaveformSegment,
+  TranscriptSegmentAPI,
+  WaveformResponse,
+  QualitySegment
+} from '../types';
 
 // Mock data for Interactive Transcript (not available from backend yet)
 export const mockTranscriptSegments: TranscriptSegment[] = [
@@ -71,22 +78,36 @@ export const mockWaveformSegments: WaveformSegment[] = [
   { width: '18%', height: '55%', color: 'bg-green-500', startTime: 18, endTime: 22 },
 ];
 
-// Helper function to convert backend feedback to transcript segments when API is ready
-export const convertFeedbackToSegments = (feedback: any): TranscriptSegment[] => {
-  // This will be used once the backend provides segment-level feedback
-  return feedback.segments?.map((seg: any, index: number) => ({
-    id: seg.segment_id || index + 1,
+// Helper function to convert API transcript segments to UI format
+export const convertTranscriptSegmentsToUI = (apiSegments: TranscriptSegmentAPI[]): TranscriptSegment[] => {
+  return apiSegments.map((seg) => ({
+    id: seg.segment_id,
     text: seg.text,
     startTime: formatTime(seg.start_time),
     endTime: formatTime(seg.end_time),
     start_seconds: seg.start_time,
     end_seconds: seg.end_time,
-    issue: seg.issue_type || null,
-    issueText: seg.issue_description,
-    score: seg.severity as 'good' | 'warning' | 'error',
-    tip: seg.tip,
-    pace_wpm: seg.pace_wpm,
-  })) || [];
+    issue: seg.primary_issue?.type || null,
+    issueText: seg.primary_issue?.description,
+    score: seg.severity,
+    tip: seg.primary_issue?.tip,
+    pace_wpm: seg.metrics.pace_wpm,
+    original_audio_url: seg.original_audio_url,
+    improved_audio_url: seg.improved_audio_url,
+  }));
+};
+
+// Helper function to convert waveform quality segments to UI format
+export const convertWaveformToUI = (waveformData: WaveformResponse): {
+  peaks: number[];
+  qualitySegments: QualitySegment[];
+  duration: number;
+} => {
+  return {
+    peaks: waveformData.waveform_data.peaks,
+    qualitySegments: waveformData.quality_segments,
+    duration: waveformData.duration_seconds,
+  };
 };
 
 function formatTime(seconds: number): string {

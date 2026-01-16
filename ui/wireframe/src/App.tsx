@@ -6,12 +6,15 @@ import {
   ViewType,
   PlayingVersion,
   TranscriptSegment,
-  DetailedMetricsResponse
+  DetailedMetricsResponse,
+  QualitySegment
 } from './types';
 import {
   mockTranscriptSegments,
   mockProgressData,
-  mockWaveformSegments
+  mockWaveformSegments,
+  convertTranscriptSegmentsToUI,
+  convertWaveformToUI
 } from './data/mockData';
 import './App.css';
 
@@ -34,6 +37,52 @@ export default function SpeechCoachApp() {
   const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<'idle' | 'pending' | 'processing' | 'completed' | 'failed'>('idle');
 
+  // NEW: Transcript and waveform state
+  const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
+  const [isLoadingTranscript, setIsLoadingTranscript] = useState(false);
+  const [waveformPeaks, setWaveformPeaks] = useState<number[]>([]);
+  const [waveformQualitySegments, setWaveformQualitySegments] = useState<QualitySegment[]>([]);
+  const [isLoadingWaveform, setIsLoadingWaveform] = useState(false);
+  const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+
+  const loadTranscript = useCallback(async (coachingId: string) => {
+    try {
+      setIsLoadingTranscript(true);
+      const token = await getAccessToken();
+      if (!token) return;
+
+      const transcriptData = await apiService.getTranscript(coachingId, token, 6);
+      const uiSegments = convertTranscriptSegmentsToUI(transcriptData.segments);
+      setTranscriptSegments(uiSegments);
+    } catch (error) {
+      console.error('Error loading transcript:', error);
+      // Fallback to mock data on error
+      setTranscriptSegments(mockTranscriptSegments);
+    } finally {
+      setIsLoadingTranscript(false);
+    }
+  }, [getAccessToken]);
+
+  const loadWaveform = useCallback(async (coachingId: string) => {
+    try {
+      setIsLoadingWaveform(true);
+      const token = await getAccessToken();
+      if (!token) return;
+
+      const waveformData = await apiService.getWaveform(coachingId, token, 1000);
+      const { peaks, qualitySegments } = convertWaveformToUI(waveformData);
+      setWaveformPeaks(peaks);
+      setWaveformQualitySegments(qualitySegments);
+    } catch (error) {
+      console.error('Error loading waveform:', error);
+      // Fallback to mock on error
+      setWaveformPeaks([]);
+      setWaveformQualitySegments([]);
+    } finally {
+      setIsLoadingWaveform(false);
+    }
+  }, [getAccessToken]);
+
   const loadMetrics = useCallback(async (coachingId: string) => {
     try {
       setIsLoadingMetrics(true);
@@ -42,13 +91,18 @@ export default function SpeechCoachApp() {
 
       const detailedMetrics = await apiService.getDetailedMetrics(coachingId, token);
       setMetrics(detailedMetrics);
+
+      // Load transcript and waveform data
+      loadTranscript(coachingId);
+      loadWaveform(coachingId);
+
       setActiveView('analysis');
     } catch (error) {
       console.error('Error loading metrics:', error);
     } finally {
       setIsLoadingMetrics(false);
     }
-  }, [getAccessToken]);
+  }, [getAccessToken, loadTranscript, loadWaveform]);
 
   // Poll for processing status
   useEffect(() => {
@@ -210,6 +264,51 @@ export default function SpeechCoachApp() {
     </button>
   );
 
+  const playSegmentAudio = (segment: TranscriptSegment, version: PlayingVersion) => {
+    // Stop current audio if playing
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+    }
+
+    const audioUrl = version === 'original' ? segment.original_audio_url : segment.improved_audio_url;
+
+    if (!audioUrl) {
+      console.warn('No audio URL available for this segment');
+      return;
+    }
+
+    const audio = new Audio(audioUrl);
+
+    audio.onplay = () => {
+      setPlayingSegment(segment.id);
+      setPlayingVersion(version);
+    };
+
+    audio.onended = () => {
+      setPlayingSegment(null);
+      setPlayingVersion(null);
+    };
+
+    audio.onerror = (e) => {
+      console.error('Audio playback error:', e);
+      setPlayingSegment(null);
+      setPlayingVersion(null);
+    };
+
+    setCurrentAudio(audio);
+    audio.play();
+  };
+
+  const stopAudio = () => {
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+    }
+    setPlayingSegment(null);
+    setPlayingVersion(null);
+  };
+
   const SegmentPlayer = ({ segment }: { segment: TranscriptSegment }) => {
     const isPlaying = playingSegment === segment.id;
     const isHovered = hoveredSegment === segment.id;
@@ -250,13 +349,19 @@ export default function SpeechCoachApp() {
             <div className="flex gap-2">
               <button
                 onClick={() => {
-                  setPlayingSegment(segment.id);
-                  setPlayingVersion('original');
+                  if (isPlaying && playingVersion === 'original') {
+                    stopAudio();
+                  } else {
+                    playSegmentAudio(segment, 'original');
+                  }
                 }}
+                disabled={!segment.original_audio_url}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                   isPlaying && playingVersion === 'original'
                     ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    : segment.original_audio_url
+                    ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 }`}
               >
                 {isPlaying && playingVersion === 'original' ? (
@@ -269,13 +374,19 @@ export default function SpeechCoachApp() {
 
               <button
                 onClick={() => {
-                  setPlayingSegment(segment.id);
-                  setPlayingVersion('improved');
+                  if (isPlaying && playingVersion === 'improved') {
+                    stopAudio();
+                  } else {
+                    playSegmentAudio(segment, 'improved');
+                  }
                 }}
+                disabled={!segment.improved_audio_url}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                   isPlaying && playingVersion === 'improved'
                     ? 'bg-green-600 text-white'
-                    : 'bg-green-50 text-green-700 hover:bg-green-100'
+                    : segment.improved_audio_url
+                    ? 'bg-green-50 text-green-700 hover:bg-green-100'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 }`}
               >
                 {isPlaying && playingVersion === 'improved' ? (
@@ -301,10 +412,70 @@ export default function SpeechCoachApp() {
   };
 
   const WaveformView = () => {
+    const getSegmentColor = (time: number): string => {
+      const segment = waveformQualitySegments.find(
+        (s) => time >= s.start_time && time < s.end_time
+      );
+      return segment?.color || '#10b981'; // Default to green
+    };
+
+    const renderWaveform = () => {
+      if (isLoadingWaveform) {
+        return (
+          <div className="p-8 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+            <div className="text-sm text-gray-600">Loading waveform...</div>
+          </div>
+        );
+      }
+
+      if (waveformPeaks.length === 0) {
+        // Fallback to mock visualization
+        return (
+          <>
+            {mockWaveformSegments.map((seg, idx) => (
+              <div
+                key={idx}
+                className={`${seg.color} rounded-t cursor-pointer hover:opacity-80 transition-opacity`}
+                style={{ width: seg.width, height: seg.height }}
+              />
+            ))}
+          </>
+        );
+      }
+
+      // Render actual waveform from API data
+      const duration = waveformQualitySegments.length > 0
+        ? Math.max(...waveformQualitySegments.map(s => s.end_time))
+        : 20;
+
+      return (
+        <>
+          {waveformPeaks.slice(0, 100).map((peak, idx) => {
+            const time = (idx / 100) * duration;
+            const color = getSegmentColor(time);
+            const height = Math.max(10, peak * 100);
+
+            return (
+              <div
+                key={idx}
+                className="rounded-t cursor-pointer hover:opacity-80 transition-opacity flex-1"
+                style={{
+                  height: `${height}%`,
+                  backgroundColor: color,
+                  minWidth: '2px',
+                }}
+              />
+            );
+          })}
+        </>
+      );
+    };
+
     return (
       <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">Audio Waveform (Click to Play Sections)</h3>
+          <h3 className="text-lg font-semibold">Audio Waveform</h3>
           <div className="flex gap-2">
             <button className="px-3 py-1 text-sm bg-gray-100 rounded hover:bg-gray-200">
               Full Recording
@@ -315,40 +486,22 @@ export default function SpeechCoachApp() {
           </div>
         </div>
 
-        <div className="relative bg-gray-50 rounded-lg p-4 h-32 flex items-end gap-1">
-          {mockWaveformSegments.map((seg, idx) => (
-            <div
-              key={idx}
-              className={`${seg.color} rounded-t cursor-pointer hover:opacity-80 transition-opacity`}
-              style={{ width: seg.width, height: seg.height }}
-              onClick={() => {
-                setPlayingSegment(idx + 1);
-                setPlayingVersion('original');
-              }}
-            />
-          ))}
-
-          <div className="absolute bottom-0 left-0 right-0 flex justify-between px-4 pb-2 text-xs text-gray-500 font-mono">
-            <span>0:00</span>
-            <span>0:05</span>
-            <span>0:10</span>
-            <span>0:15</span>
-            <span>0:18</span>
-          </div>
+        <div className="relative bg-gray-50 rounded-lg p-4 h-32 flex items-end gap-px">
+          {renderWaveform()}
         </div>
 
         <div className="flex items-center gap-4 mt-4 text-xs">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-green-500 rounded"></div>
+            <div className="w-3 h-3 rounded" style={{ backgroundColor: '#10b981' }}></div>
             <span className="text-gray-600">Good delivery</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-yellow-500 rounded"></div>
+            <div className="w-3 h-3 rounded" style={{ backgroundColor: '#f59e0b' }}></div>
             <span className="text-gray-600">Needs improvement</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-red-500 rounded"></div>
-            <span className="text-gray-600">Critical issues</span>
+            <div className="w-3 h-3 rounded" style={{ backgroundColor: '#3b82f6' }}></div>
+            <span className="text-gray-600">Low confidence</span>
           </div>
         </div>
       </div>
@@ -566,15 +719,23 @@ export default function SpeechCoachApp() {
                 <span className="text-sm text-gray-500">Click any segment to play & compare</span>
               </div>
 
-              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-900">
-                <strong>Note:</strong> Transcript segments with audio playback are not yet available from the backend. Using sample data.
-              </div>
-
-              <div className="space-y-0">
-                {mockTranscriptSegments.map(segment => (
-                  <SegmentPlayer key={segment.id} segment={segment} />
-                ))}
-              </div>
+              {isLoadingTranscript ? (
+                <div className="p-8 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                  <div className="text-sm text-gray-600">Loading transcript segments...</div>
+                </div>
+              ) : transcriptSegments.length > 0 ? (
+                <div className="space-y-0">
+                  {transcriptSegments.map(segment => (
+                    <SegmentPlayer key={segment.id} segment={segment} />
+                  ))}
+                </div>
+              ) : (
+                <div className="p-8 text-center text-gray-500">
+                  <MessageSquare className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <div>No transcript segments available</div>
+                </div>
+              )}
 
               <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
                 <div className="flex items-start gap-3">

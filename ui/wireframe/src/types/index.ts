@@ -95,7 +95,63 @@ export interface FeedbackSegment {
   severity: 'good' | 'warning' | 'error';
 }
 
-// Frontend-only Types (Mock Data)
+// NEW: Waveform API Response
+export interface WaveformResponse {
+  coaching_id: string;
+  duration_seconds: number;
+  sample_rate: number;
+  waveform_data: {
+    peaks: number[];
+    sample_count: number;
+    sample_interval_ms: number;
+  };
+  quality_segments: QualitySegment[];
+}
+
+export interface QualitySegment {
+  start_time: number;
+  end_time: number;
+  quality: 'good' | 'warning' | 'error';
+  color: string;
+  reason: string;
+}
+
+// NEW: Interactive Transcript API Response
+export interface TranscriptResponse {
+  coaching_id: string;
+  segments: TranscriptSegmentAPI[];
+  segment_count: number;
+}
+
+export interface TranscriptSegmentAPI {
+  segment_id: number;
+  start_time: number;
+  end_time: number;
+  duration: number;
+  text: string;
+  word_count: number;
+  severity: 'good' | 'warning' | 'error';
+  severity_score: number;
+  quality_score: number;
+  is_exemplary: boolean;
+  issues: SegmentIssue[];
+  primary_issue: SegmentIssue | null;
+  metrics: {
+    pace_wpm: number;
+    filler_ratio: number;
+    confidence: number;
+  };
+  original_audio_url: string;
+  improved_audio_url: string;
+}
+
+export interface SegmentIssue {
+  type: string;
+  description: string;
+  tip: string;
+}
+
+// Frontend-only Types (For UI Display)
 export interface TranscriptSegment {
   id: number;
   text: string;
@@ -108,6 +164,8 @@ export interface TranscriptSegment {
   score: 'good' | 'warning' | 'error';
   tip?: string;
   pace_wpm?: number;
+  original_audio_url?: string;
+  improved_audio_url?: string;
 }
 
 export interface ProgressTrackerData {
