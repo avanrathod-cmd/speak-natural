@@ -23,6 +23,8 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 # Import modules from vocal_analysis
 from vocal_analysis.analyze_speech import analyze_speech_for_coaching
 from vocal_analysis.visualize_speech import generate_all_visualizations

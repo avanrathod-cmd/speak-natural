@@ -673,11 +673,11 @@ async def get_waveform(
                 return json.load(f)
 
         # Generate waveform data
-        audio_path = metadata.get("audio_path")
+        audio_path = metadata.get("input", {}).get("wav_audio_file")
         analysis_path = metadata["analysis"]["analysis"]
 
         if not audio_path or not os.path.exists(audio_path):
-            raise HTTPException(status_code=404, detail="Original audio file not found")
+            raise HTTPException(status_code=404, detail="Audio file not found")
 
         waveform_data = generate_waveform_data(
             audio_path=audio_path,
@@ -781,11 +781,11 @@ async def get_transcript_with_segments(
                 )
 
         # Generate segments
-        audio_path = metadata.get("audio_path")
+        audio_path = metadata.get("input", {}).get("wav_audio_file")
         analysis_path = metadata["analysis"]["analysis"]
 
         if not audio_path or not os.path.exists(audio_path):
-            raise HTTPException(status_code=404, detail="Original audio file not found")
+            raise HTTPException(status_code=404, detail="Audio file not found")
 
         segments_output_dir = os.path.join(session_dir, "output", "segments")
         os.makedirs(segments_output_dir, exist_ok=True)

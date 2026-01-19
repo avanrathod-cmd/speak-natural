@@ -11,8 +11,9 @@ Handles the complete pipeline:
 import os
 import json
 import sys
+import subprocess
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 import tempfile
 import shutil
 from dotenv import load_dotenv
@@ -28,6 +29,83 @@ from speach_to_text.transcribe import read_transcription, transcribe_audio_from_
 from vocal_analysis.run_full_coaching import run_full_coaching_pipeline
 from utils.aws_utils import s3_client
 from services.metrics_generator import generate_structured_metrics
+
+
+def _is_valid_wav(file_path: str) -> bool:
+    """Check if a file is a valid WAV audio file by examining its header."""
+    try:
+        with open(file_path, 'rb') as f:
+            header = f.read(12)
+            # WAV files start with "RIFF" and contain "WAVE" at bytes 8-12
+            return (
+                len(header) >= 12 and
+                header[:4] == b'RIFF' and
+                header[8:12] == b'WAVE'
+            )
+    except (IOError, OSError):
+        return False
+
+
+def _convert_to_wav(input_path: str, output_path: str) -> bool:
+    """
+    Convert an audio file to WAV format using ffmpeg.
+
+    Args:
+        input_path: Path to the input audio file
+        output_path: Path for the output WAV file
+
+    Returns:
+        True if conversion succeeded, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            [
+                'ffmpeg', '-y', '-i', input_path,
+                '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+                output_path
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        if result.returncode == 0:
+            os.remove(input_path)
+            return True
+        return False
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"Error converting audio: {e}")
+        return False
+
+
+def ensure_wav_format(audio_file_path: str) -> Tuple[str, bool]:
+    """
+    Ensure the audio file is in WAV format, converting if necessary.
+
+    Args:
+        audio_file_path: Path to the audio file
+
+    Returns:
+        Tuple of (path_to_wav_file, was_converted)
+        If conversion fails, raises an exception.
+    """
+    if _is_valid_wav(audio_file_path):
+        return audio_file_path, False
+
+    # Need to convert - create a temp WAV file
+    input_path = Path(audio_file_path)
+    wav_path = str(input_path.with_suffix('.wav'))
+
+    # If the output would overwrite the input, use a temp file
+    if wav_path == audio_file_path:
+        wav_path = str(input_path.with_stem(input_path.stem + '_converted').with_suffix('.wav'))
+
+    print(f"Converting {audio_file_path} to WAV format...")
+
+    if not _convert_to_wav(audio_file_path, wav_path):
+        raise RuntimeError(f"Failed to convert {audio_file_path} to WAV format. Ensure ffmpeg is installed.")
+
+    print(f"✓ Converted to: {wav_path}")
+    return wav_path, True
 
 
 class AudioProcessorService:
@@ -215,28 +293,32 @@ class AudioProcessorService:
         request_dir = os.path.join(output_base_dir, request_id)
         os.makedirs(request_dir, exist_ok=True)
 
-        audio_filename = Path(audio_file_path).name
-        audio_stem = Path(audio_file_path).stem
+        print("=" * 80)
+        print(f"PROCESSING REQUEST: {request_id}")
+        print("=" * 80)
+
+        # Ensure audio is in WAV format
+        print("\n[0/6] Validating audio format...")
+        wav_audio_path, was_converted = ensure_wav_format(audio_file_path)
+
+        audio_filename = Path(wav_audio_path).name
+        audio_stem = Path(wav_audio_path).stem
 
         # S3 keys
         s3_audio_key = f"{request_id}/input/{audio_filename}"
         s3_transcript_key = f"{request_id}/transcript/{audio_stem}_transcript.json"
 
-        print("=" * 80)
-        print(f"PROCESSING REQUEST: {request_id}")
-        print("=" * 80)
-
         # Step 1: Upload audio to S3
-        print("\n[1/5] Uploading audio to S3...")
-        s3_audio_uri = self.upload_audio_to_s3(audio_file_path, s3_audio_key)
+        print("\n[1/6] Uploading audio to S3...")
+        s3_audio_uri = self.upload_audio_to_s3(wav_audio_path, s3_audio_key)
 
         # Step 2: Transcribe audio
-        print("\n[2/5] Transcribing audio...")
+        print("\n[2/6] Transcribing audio...")
         job_name = f"job-{request_id}"
         transcript_data = self.transcribe_audio(s3_audio_uri, job_name)
 
         # Step 3: Save transcript
-        print("\n[3/5] Saving transcript...")
+        print("\n[3/6] Saving transcript...")
         local_transcript_path = os.path.join(request_dir, "transcript.json")
         self.save_transcript_to_file(transcript_data, local_transcript_path)
 
@@ -248,7 +330,7 @@ class AudioProcessorService:
 
         analysis_results = self.run_vocal_analysis(
             transcript_path=local_transcript_path,
-            audio_path=audio_file_path,
+            audio_path=wav_audio_path,
             output_dir=analysis_output_dir,
             skip_coaching=skip_coaching
         )
@@ -299,6 +381,8 @@ class AudioProcessorService:
             "status": "completed",
             "input": {
                 "audio_file": audio_file_path,
+                "wav_audio_file": wav_audio_path,
+                "was_converted": was_converted,
                 "s3_audio_uri": s3_audio_uri
             },
             "transcript": {

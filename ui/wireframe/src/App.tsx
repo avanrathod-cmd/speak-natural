@@ -189,7 +189,7 @@ export default function SpeechCoachApp() {
   const handleStartRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' }); 
       const audioChunks: BlobPart[] = [];
 
       mediaRecorder.ondataavailable = (event) => {
@@ -198,7 +198,7 @@ export default function SpeechCoachApp() {
 
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-        const audioFile = new File([audioBlob], 'recording.wav', { type: 'audio/wav' });
+        const audioFile = new File([audioBlob], 'recording.webm', { type: 'audio/webm' });
 
         await handleFileUpload(audioFile);
 
