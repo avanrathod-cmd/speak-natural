@@ -995,8 +995,15 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
+    parser.add_argument("--output-dir", type=str, help="Output directory for storing sessions (default: /tmp/speak-right or STORAGE_DIR env var)")
 
     args = parser.parse_args()
+
+    # Reinitialize storage_manager if output-dir is provided
+    if args.output_dir:
+        storage_manager.base_dir = args.output_dir
+        os.makedirs(args.output_dir, exist_ok=True)
+        print(f"Using output directory: {args.output_dir}")
 
     uvicorn.run(
         "api.main:app",
