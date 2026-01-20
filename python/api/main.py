@@ -38,7 +38,10 @@ from api.models import (
     CoachingFeedbackResponse,
     ErrorResponse,
     SignupRequest,
-    SignupResponse
+    SignupResponse,
+    PracticeTheme,
+    PracticeThemesResponse,
+    PracticeDialogueResponse
 )
 from api.storage_manager import StorageManager
 from services.audio_processor import AudioProcessorService
@@ -172,6 +175,135 @@ async def signup(request: SignupRequest):
         email=request.email,
         token=mock_token,
         message="Signup successful (mock)"
+    )
+
+
+# Practice themes and dialogues data
+PRACTICE_THEMES = [
+    PracticeTheme(
+        id="dialogue",
+        name="Dialogue Practice",
+        description="Practice natural conversation and interpersonal communication",
+        icon="MessageSquare"
+    ),
+    PracticeTheme(
+        id="sales_pitch",
+        name="Sales Pitch",
+        description="Deliver a compelling product or service pitch",
+        icon="TrendingUp"
+    ),
+    PracticeTheme(
+        id="presentation",
+        name="Presentation",
+        description="Present ideas clearly and professionally",
+        icon="PlayCircle"
+    ),
+]
+
+PRACTICE_DIALOGUES = {
+    "dialogue": '''
+    "It’s been eighty-four years, and I can **still** smell the fresh paint. The china had **never** been used. The sheets had never been slept in. Titanic was called the ship of **dreams**, and it 
+**really** was. To everyone else, it was the **largest** vessel ever built, a triumph of human 
+engineering. But to **me**, it was a **slave** ship, taking me back to America in **chains**. 
+Outwardly, I was **everything** a well-brought-up girl should be. Inside, I was **screaming**. 
+Then I met **Jack**. He saved me in **every** way that a person can be saved. I don't **even** have a picture of him now. He exists **only** in my memory. I’ve kept his story locked **deep** inside for decades. But **now**, you all need to know what **really** happened on that fateful 
+night out in the middle of the Atlantic Ocean. It was more than just a tragedy; it was the 
+**end** of an era for all of us who were there."
+
+''',
+
+    "sales_pitch": '''
+"Let’s be **honest**. Your current laptop is **dragging** you down. You feel it every time it 
+stutters during a render or suddenly **dies** right before a major deadline. That ends **today**. 
+Introducing the Apex Ultra. This isn't just a computer; it is a **total** powerhouse. We 
+packed it with a ten-core processor that **demolishes** every single task you throw at it. 
+The screen? It is a Pro-Motion OLED with billions of colors that **literally** pop off the glass. 
+It is so **light** you will forget it is in your bag, yet the battery lasts for **twenty** hours. 
+Imagine working from a cafe or an airplane without **ever** hunting for a plug. If you are 
+**serious** about your career, you deserve a tool that actually **works** as hard as **you** do. 
+Don’t wait another minute to **finally** upgrade your entire life and workflow. This is the 
+machine you have been **waiting** for."
+
+''',
+
+    "presentation": '''
+"Good morning, everyone. I am **incredibly** proud to stand here today. Our third-quarter 
+results are finally in, and the news is **stunning**. We didn’t just **hit** our revenue 
+targets; we **shattered** them by fifteen percent. Our expansion into the European market has 
+been a **massive** success, surpassing even our most **optimistic** projections. But numbers 
+only tell **part** of the story. The **real** win is the efficiency of our engineering team. 
+You reduced our server latency by **half** while simultaneously **cutting** costs. That is 
+**unheard** of in this industry. As we look toward the future, our pipeline for the next six 
+months is the **strongest** it has ever been. We are perfectly positioned to **dominate** the 
+market space. I want to **personally** thank every one of you for your unwavering dedication 
+to this vision. Let’s keep this momentum going **strong** into the new year."
+''',
+}
+
+
+def count_dialogue_words(text: str) -> int:
+    """Count words in dialogue text, excluding markdown syntax."""
+    clean_text = text.replace("**", "")
+    return len([word for word in clean_text.split() if word])
+
+
+@app.get("/practice/themes", response_model=PracticeThemesResponse, tags=["Practice"])
+async def get_practice_themes(user: dict = Depends(get_current_user_optional)):
+    """
+    Get available practice themes.
+
+    **Authentication Optional**: Works with or without authentication.
+
+    Returns:
+        List of available practice themes (Dialogue, Sales Pitch, Presentation)
+    """
+    return PracticeThemesResponse(themes=PRACTICE_THEMES)
+
+
+@app.get("/practice/dialogue/{theme_id}", response_model=PracticeDialogueResponse, tags=["Practice"])
+async def get_practice_dialogue(
+    theme_id: str,
+    user: dict = Depends(get_current_user_optional)
+):
+    """
+    Get a practice dialogue for a specific theme.
+
+    **Authentication Optional**: Works with or without authentication.
+
+    Args:
+        theme_id: Theme identifier (dialogue, sales_pitch, presentation)
+
+    Returns:
+        Dialogue text with **bold** markers for emphasis words/phrases
+
+    Example Response:
+    {
+      "theme_id": "sales_pitch",
+      "theme_name": "Sales Pitch",
+      "dialogue": "Good morning... **transform** how your teams work...",
+      "word_count": 185
+    }
+    """
+    if theme_id not in PRACTICE_DIALOGUES:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Theme not found: {theme_id}. Available themes: {list(PRACTICE_DIALOGUES.keys())}"
+        )
+
+    # Find theme name
+    theme_name = theme_id
+    for theme in PRACTICE_THEMES:
+        if theme.id == theme_id:
+            theme_name = theme.name
+            break
+
+    dialogue = PRACTICE_DIALOGUES[theme_id]
+
+    return PracticeDialogueResponse(
+        theme_id=theme_id,
+        theme_name=theme_name,
+        dialogue=dialogue,
+        word_count=count_dialogue_words(dialogue)
     )
 
 

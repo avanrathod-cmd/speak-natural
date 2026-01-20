@@ -90,3 +90,25 @@ class SignupResponse(BaseModel):
     email: str
     token: str
     message: str
+
+
+class PracticeTheme(BaseModel):
+    """Model for a practice theme."""
+    id: str = Field(..., description="Unique theme identifier")
+    name: str = Field(..., description="Display name of the theme")
+    description: str = Field(..., description="Brief description of the theme")
+    icon: str = Field(..., description="Icon identifier (MessageSquare, TrendingUp, PlayCircle)")
+
+
+class PracticeThemesResponse(BaseModel):
+    """Response model for list of practice themes."""
+    themes: List[PracticeTheme] = Field(..., description="List of available practice themes")
+
+
+class PracticeDialogueResponse(BaseModel):
+    """Response model for a practice dialogue."""
+    theme_id: str = Field(..., description="Theme identifier")
+    theme_name: str = Field(..., description="Theme display name")
+    dialogue: str = Field(..., description="Dialogue text with **bold** markers for emphasis")
+    word_count: int = Field(..., description="Approximate word count")
+

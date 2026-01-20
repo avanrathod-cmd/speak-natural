@@ -219,3 +219,22 @@ export interface AuthContextType {
 // Component State Types
 export type ViewType = 'upload' | 'analysis' | 'sessions';
 export type PlayingVersion = 'original' | 'improved';
+
+// Practice Theme Types
+export interface PracticeTheme {
+  id: string;
+  name: string;
+  description: string;
+  icon: 'MessageSquare' | 'TrendingUp' | 'PlayCircle';
+}
+
+export interface PracticeThemesResponse {
+  themes: PracticeTheme[];
+}
+
+export interface PracticeDialogueResponse {
+  theme_id: string;
+  theme_name: string;
+  dialogue: string;
+  word_count: number;
+}

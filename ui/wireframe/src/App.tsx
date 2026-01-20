@@ -8,14 +8,17 @@ import {
   TranscriptSegment,
   DetailedMetricsResponse,
   QualitySegment,
-  SessionItem
+  SessionItem,
+  PracticeTheme
 } from './types';
 import {
   mockTranscriptSegments,
   mockProgressData,
   mockWaveformSegments,
   convertTranscriptSegmentsToUI,
-  convertWaveformToUI
+  convertWaveformToUI,
+  renderDialogueWithEmphasis,
+  countDialogueWords
 } from './data/mockData';
 import './App.css';
 
@@ -29,6 +32,14 @@ export default function SpeechCoachApp() {
   const [hoveredSegment, setHoveredSegment] = useState<number | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+
+  // Theme selection state for recording
+  const [showThemeSelection, setShowThemeSelection] = useState(false);
+  const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
+  const [generatedPrompt, setGeneratedPrompt] = useState<string | null>(null);
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+  const [practiceThemes, setPracticeThemes] = useState<PracticeTheme[]>([]);
+  const [isLoadingThemes, setIsLoadingThemes] = useState(false);
 
   // Sessions state
   const [sessions, setSessions] = useState<SessionItem[]>([]);
@@ -223,6 +234,58 @@ export default function SpeechCoachApp() {
       (window as any).currentRecorder.stop();
       setIsRecording(false);
     }
+  };
+
+  // Load practice themes from backend
+  const loadPracticeThemes = useCallback(async () => {
+    try {
+      setIsLoadingThemes(true);
+      const token = await getAccessToken();
+      const response = await apiService.getPracticeThemes(token || undefined);
+      setPracticeThemes(response.themes);
+    } catch (error) {
+      console.error('Error loading practice themes:', error);
+      // Keep empty array on error - UI will show nothing
+      setPracticeThemes([]);
+    } finally {
+      setIsLoadingThemes(false);
+    }
+  }, [getAccessToken]);
+
+  // Load themes when showing theme selection
+  useEffect(() => {
+    if (showThemeSelection && practiceThemes.length === 0) {
+      loadPracticeThemes();
+    }
+  }, [showThemeSelection, practiceThemes.length, loadPracticeThemes]);
+
+  // Handle theme selection for recording practice
+  const handleThemeSelect = async (themeId: string) => {
+    setSelectedTheme(themeId);
+    setIsGeneratingPrompt(true);
+
+    try {
+      const token = await getAccessToken();
+      const response = await apiService.getPracticeDialogue(themeId, token || undefined);
+      setGeneratedPrompt(response.dialogue);
+    } catch (error) {
+      console.error('Error fetching dialogue:', error);
+      setGeneratedPrompt(null);
+    } finally {
+      setIsGeneratingPrompt(false);
+    }
+  };
+
+  // Start recording after theme is selected
+  const handleStartRecordingWithTheme = () => {
+    handleStartRecording();
+  };
+
+  // Reset theme selection
+  const handleCancelThemeSelection = () => {
+    setShowThemeSelection(false);
+    setSelectedTheme(null);
+    setGeneratedPrompt(null);
   };
 
   // Simulate recording timer
@@ -567,7 +630,7 @@ export default function SpeechCoachApp() {
           Upload an audio file or record directly from your microphone
         </p>
 
-        {!isRecording && !isUploading ? (
+        {!isRecording && !isUploading && !showThemeSelection ? (
           <div className="flex gap-4 justify-center">
             <label className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer">
               <Upload className="w-5 h-5" />
@@ -585,12 +648,119 @@ export default function SpeechCoachApp() {
               />
             </label>
             <button
-              onClick={handleStartRecording}
+              onClick={() => setShowThemeSelection(true)}
               className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
             >
               <Mic className="w-5 h-5" />
-              Start Recording
+              Record Audio
             </button>
+          </div>
+        ) : showThemeSelection && !isRecording ? (
+          <div className="space-y-6 text-left">
+            <div className="text-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Select a Practice Theme</h3>
+              <p className="text-sm text-gray-600">Choose a scenario and we'll generate a prompt for you to practice</p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              {isLoadingThemes ? (
+                <div className="col-span-3 flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mr-2"></div>
+                  <span className="text-gray-600">Loading themes...</span>
+                </div>
+              ) : practiceThemes.length === 0 ? (
+                <div className="col-span-3 text-center py-8 text-gray-500">
+                  No practice themes available
+                </div>
+              ) : (
+                practiceThemes.map((theme) => (
+                  <button
+                    key={theme.id}
+                    onClick={() => handleThemeSelect(theme.id)}
+                    disabled={isGeneratingPrompt}
+                    className={`p-4 rounded-lg border-2 transition-all text-left ${
+                      selectedTheme === theme.id
+                        ? 'border-blue-600 bg-blue-50'
+                        : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                    } ${isGeneratingPrompt ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {theme.icon === 'MessageSquare' && <MessageSquare className="w-6 h-6 text-blue-600 mb-2" />}
+                    {theme.icon === 'TrendingUp' && <TrendingUp className="w-6 h-6 text-purple-600 mb-2" />}
+                    {theme.icon === 'PlayCircle' && <PlayCircle className="w-6 h-6 text-green-600 mb-2" />}
+                    <div className="font-semibold text-gray-900">{theme.name}</div>
+                    <div className="text-xs text-gray-600 mt-1">{theme.description}</div>
+                  </button>
+                ))
+              )}
+            </div>
+
+            {isGeneratingPrompt && (
+              <div className="flex items-center justify-center gap-3 py-4">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                <span className="text-gray-600">Generating dialogue...</span>
+              </div>
+            )}
+
+            {generatedPrompt && !isGeneratingPrompt && (
+              <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg p-6 border border-blue-200">
+                <div className="flex items-start gap-3 mb-3">
+                  <MessageSquare className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-semibold text-gray-900 mb-1">
+                      {practiceThemes.find(t => t.id === selectedTheme)?.name || 'Dialogue'}
+                    </h4>
+                    <p className="text-xs text-gray-500">Recite this dialogue naturally. <strong className="text-blue-600">Bold words</strong> need extra emphasis.</p>
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg p-4 text-sm text-gray-700 leading-relaxed max-h-48 overflow-y-auto whitespace-pre-line">
+                  {renderDialogueWithEmphasis(generatedPrompt).parts.map((part, idx) => (
+                    part.bold ? (
+                      <strong key={idx} className="text-blue-700 font-bold">{part.text}</strong>
+                    ) : (
+                      <span key={idx}>{part.text}</span>
+                    )
+                  ))}
+                </div>
+                <div className="mt-4 flex items-center justify-between">
+                  <span className="text-xs text-gray-500">
+                    ~{countDialogueWords(generatedPrompt)} words
+                  </span>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleCancelThemeSelection}
+                      className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleStartRecordingWithTheme}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                    >
+                      <Mic className="w-4 h-4" />
+                      Start Recording
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!generatedPrompt && !isGeneratingPrompt && (
+            <div className="flex gap-3 justify-end">
+                    <button
+                      onClick={handleCancelThemeSelection}
+                      className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleStartRecording}
+                      className="flex items-right gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                    >
+                      <Mic className="w-4 h-4" />
+                      Start Recording
+                    </button>
+                  </div>
+              )}
           </div>
         ) : isUploading ? (
           <div className="flex items-center justify-center gap-3">
@@ -599,6 +769,27 @@ export default function SpeechCoachApp() {
           </div>
         ) : (
           <div className="space-y-4">
+            {/* Show the dialogue while recording for reference */}
+            {generatedPrompt && (
+              <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg p-4 border border-blue-200 mb-4 text-left">
+                <div className="flex items-start gap-2 mb-2">
+                  <MessageSquare className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <span className="text-xs font-semibold text-blue-800">
+                    Your Dialogue - <strong className="text-blue-600">Bold words</strong> need emphasis:
+                  </span>
+                </div>
+                <div className="bg-white rounded p-3 text-sm text-gray-700 leading-relaxed max-h-32 overflow-y-auto whitespace-pre-line">
+                  {renderDialogueWithEmphasis(generatedPrompt).parts.map((part, idx) => (
+                    part.bold ? (
+                      <strong key={idx} className="text-blue-700 font-bold">{part.text}</strong>
+                    ) : (
+                      <span key={idx}>{part.text}</span>
+                    )
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-center gap-3">
               <div className="relative">
                 <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center animate-pulse">
@@ -614,7 +805,13 @@ export default function SpeechCoachApp() {
 
             <div className="flex gap-3 justify-center">
               <button
-                onClick={handleStopRecording}
+                onClick={() => {
+                  handleStopRecording();
+                  // Reset theme selection state after recording
+                  setShowThemeSelection(false);
+                  setSelectedTheme(null);
+                  setGeneratedPrompt(null);
+                }}
                 className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
               >
                 <Pause className="w-5 h-5" />
@@ -627,6 +824,10 @@ export default function SpeechCoachApp() {
                   }
                   setIsRecording(false);
                   setRecordingTime(0);
+                  // Reset theme selection state on cancel
+                  setShowThemeSelection(false);
+                  setSelectedTheme(null);
+                  setGeneratedPrompt(null);
                 }}
                 className="flex items-center gap-2 px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
               >

@@ -115,3 +115,102 @@ function formatTime(seconds: number): string {
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
+
+// Practice themes for recording (will come from backend)
+export interface PracticeTheme {
+  id: string;
+  name: string;
+  description: string;
+  icon: 'MessageSquare' | 'TrendingUp' | 'PlayCircle';
+}
+
+export const mockPracticeThemes: PracticeTheme[] = [
+  {
+    id: 'dialogue',
+    name: 'Dialogue Practice',
+    description: 'Practice natural conversation and interpersonal communication',
+    icon: 'MessageSquare',
+  },
+  {
+    id: 'sales_pitch',
+    name: 'Sales Pitch',
+    description: 'Deliver a compelling product or service pitch',
+    icon: 'TrendingUp',
+  },
+  {
+    id: 'presentation',
+    name: 'Presentation',
+    description: 'Present ideas clearly and professionally',
+    icon: 'PlayCircle',
+  },
+];
+
+// Practice dialogues with **bold** markers for emphasis words/phrases
+// Will be fetched from backend API in production
+export const mockPracticeDialogues: Record<string, string> = {
+  dialogue: `"I've been thinking about what you said... about making each day count. You know, I used to think that money and status were **everything**. That if I just had enough of both, I'd finally be **happy**. But standing here with you, watching this sunset... I realize I had it all **wrong**.
+
+It's not about what we **have**, it's about what we **feel**. The moments that take your breath away. The people who make you want to be **better**. I spent so long chasing the wrong things that I almost missed what was right in front of me.
+
+**Promise** me something. Promise me that no matter what happens, you'll never let anyone tell you how to **live** your life. That you'll chase your **dreams**, even when they seem impossible. Because life is too **short** to live by someone else's rules.
+
+When I'm with you, I feel like I can do **anything**. Like the whole world is just... **waiting** for us."`,
+
+  sales_pitch: `"Good morning, everyone. Thank you for your time today. I'm here to introduce you to the **ProBook Elite X1** — a laptop that will **transform** how your teams work.
+
+Let me ask you this: How much time does your team lose each day waiting for applications to load? With our **12th generation processor** and **32 gigabytes** of RAM, the ProBook Elite boots in under **eight seconds** and handles even the most demanding workflows **effortlessly**.
+
+But here's what **really** sets us apart. Our **18-hour battery life** means your team stays productive on cross-country flights, client meetings, and everywhere in between. No more hunting for outlets. No more interruptions.
+
+Security? We've got you covered. **Biometric fingerprint** scanning and **hardware-level encryption** protect your sensitive data from day one.
+
+And the best part? We're offering a **30-day risk-free trial** for enterprise clients. Let your team experience the difference **firsthand**.
+
+The ProBook Elite X1. **Power** meets **portability**. Let's discuss how we can equip your organization today."`,
+
+  presentation: `"Good afternoon, board members and leadership team. I'm **pleased** to share our Q3 performance results with you today.
+
+Let me start with the **highlights**. Revenue this quarter reached **47 million dollars**, representing a **23 percent increase** year-over-year. This is our **strongest** quarter in company history.
+
+Our customer acquisition cost decreased by **18 percent**, while customer lifetime value increased by **31 percent**. This improved ratio demonstrates that our strategic investments in product quality are paying **dividends**.
+
+Now, let me address our **challenges** transparently. Supply chain disruptions impacted our European operations, causing a **12 percent shortfall** against regional targets. We've already implemented **dual-sourcing strategies** to prevent future disruptions.
+
+Looking ahead to Q4, our **priorities** are clear: First, expand our enterprise sales team by **40 percent**. Second, launch our new AI-powered analytics platform. Third, enter the **Southeast Asian** market.
+
+The **investments** we make this quarter will position us for **sustained growth** in the coming fiscal year.
+
+Thank you. I welcome your **questions**."`,
+};
+
+// Helper to render dialogue text with bold emphasis (use in React components)
+// Converts **text** to <strong> elements
+export const renderDialogueWithEmphasis = (text: string): { parts: Array<{ text: string; bold: boolean }> } => {
+  const parts: Array<{ text: string; bold: boolean }> = [];
+  const regex = /\*\*(.*?)\*\*/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before the match
+    if (match.index > lastIndex) {
+      parts.push({ text: text.slice(lastIndex, match.index), bold: false });
+    }
+    // Add the bold text
+    parts.push({ text: match[1], bold: true });
+    lastIndex = regex.lastIndex;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push({ text: text.slice(lastIndex), bold: false });
+  }
+
+  return { parts };
+};
+
+// Helper to count words excluding markdown syntax
+export const countDialogueWords = (text: string): number => {
+  const cleanText = text.replace(/\*\*/g, '');
+  return cleanText.split(/\s+/).filter(word => word.length > 0).length;
+};

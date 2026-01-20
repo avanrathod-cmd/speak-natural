@@ -7,6 +7,8 @@ import {
   WaveformResponse,
   TranscriptResponse,
   SessionsResponse,
+  PracticeThemesResponse,
+  PracticeDialogueResponse,
 } from '../types';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -168,6 +170,40 @@ class ApiService {
 
     if (!response.ok) {
       throw new Error(`Failed to get sessions: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  async getPracticeThemes(token?: string): Promise<PracticeThemesResponse> {
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_URL}/practice/themes`, {
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get practice themes: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  async getPracticeDialogue(themeId: string, token?: string): Promise<PracticeDialogueResponse> {
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_URL}/practice/dialogue/${themeId}`, {
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get practice dialogue: ${response.statusText}`);
     }
 
     return response.json();
