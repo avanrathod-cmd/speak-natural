@@ -148,6 +148,37 @@ class StorageManager:
 
         self.save_session_metadata(coaching_id, metadata)
 
+    def save_voice_mapping(
+        self,
+        coaching_id: str,
+        voice_mapping: Dict[str, str]
+    ):
+        """
+        Save voice mapping (speaker -> voice_id) to session metadata.
+
+        Args:
+            coaching_id: Coaching session ID
+            voice_mapping: Dictionary mapping speaker labels to ElevenLabs voice IDs
+        """
+        metadata = self.load_session_metadata(coaching_id) or {"coaching_id": coaching_id}
+        metadata["voice_mapping"] = voice_mapping
+        self.save_session_metadata(coaching_id, metadata)
+
+    def get_voice_mapping(self, coaching_id: str) -> Optional[Dict[str, str]]:
+        """
+        Get voice mapping from session metadata.
+
+        Args:
+            coaching_id: Coaching session ID
+
+        Returns:
+            Dictionary mapping speaker labels to voice IDs, or None if not found
+        """
+        metadata = self.load_session_metadata(coaching_id)
+        if metadata:
+            return metadata.get("voice_mapping")
+        return None
+
     def cleanup_session(self, coaching_id: str, keep_metadata: bool = True):
         """
         Clean up session files from local storage.

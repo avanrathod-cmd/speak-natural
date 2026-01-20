@@ -360,7 +360,8 @@ async def upload_audio(
         storage_manager.save_session_metadata(coaching_id, metadata)
 
         # Add background task
-        background_tasks.add_task(process_audio_background, coaching_id, audio_path)
+        background_tasks.add_task(process_audio_background, coaching_id,
+                                audio_path)
 
         return UploadAudioResponse(
             coaching_id=coaching_id,
@@ -922,12 +923,16 @@ async def get_transcript_with_segments(
         segments_output_dir = os.path.join(session_dir, "output", "segments")
         os.makedirs(segments_output_dir, exist_ok=True)
 
+        # Get voice mapping from metadata (if voice cloning was performed)
+        voice_mapping = metadata.get("voice_mapping")
+
         # Generate segments with audio
         segments = generate_segments_with_audio(
             audio_path=audio_path,
             coaching_analysis_path=analysis_path,
             output_dir=segments_output_dir,
-            max_segments=max_segments
+            max_segments=max_segments,
+            voice_mapping=voice_mapping
         )
 
         # Upload segment audio files to S3 and generate URLs

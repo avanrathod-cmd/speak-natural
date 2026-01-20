@@ -29,6 +29,7 @@ from speach_to_text.transcribe import read_transcription, transcribe_audio_from_
 from vocal_analysis.run_full_coaching import run_full_coaching_pipeline
 from utils.aws_utils import s3_client
 from services.metrics_generator import generate_structured_metrics
+from services.voice_cloning_service import VoiceCloningService, should_clone_voices
 
 
 def _is_valid_wav(file_path: str) -> bool:
@@ -231,6 +232,48 @@ class AudioProcessorService:
         print(f"✓ Uploaded {len(uploaded_files)} files to S3 under {s3_prefix}/")
         return uploaded_files
 
+    def _clone_voices_from_transcript(
+        self,
+        audio_path: str,
+        transcript_data: Dict,
+        output_dir: str
+    ) -> Optional[Dict[str, str]]:
+        """
+        Clone voices for each speaker in the transcript.
+
+        Args:
+            audio_path: Path to the audio file
+            transcript_data: Transcription data from AWS Transcribe
+            output_dir: Directory to save voice samples
+
+        Returns:
+            Dictionary mapping speaker labels to cloned voice IDs, or None if failed
+        """
+        # Extract audio segments from transcript
+        # AWS Transcribe returns segments in results.audio_segments
+        audio_segments = []
+
+        if 'results' in transcript_data:
+            audio_segments = transcript_data['results'].get('audio_segments', [])
+        elif 'audio_segments' in transcript_data:
+            audio_segments = transcript_data.get('audio_segments', [])
+
+        if not audio_segments:
+            print("No audio segments with speaker labels found in transcript")
+            return None
+
+        # Initialize voice cloning service
+        voice_service = VoiceCloningService()
+
+        # Clone voices from transcript
+        voice_mapping = voice_service.clone_voices_from_transcript(
+            audio_path=audio_path,
+            transcript_segments=audio_segments,
+            output_dir=output_dir
+        )
+
+        return voice_mapping if voice_mapping else None
+
     def run_vocal_analysis(
         self,
         transcript_path: str,
@@ -309,23 +352,42 @@ class AudioProcessorService:
         s3_transcript_key = f"{request_id}/transcript/{audio_stem}_transcript.json"
 
         # Step 1: Upload audio to S3
-        print("\n[1/6] Uploading audio to S3...")
+        print("\n[1/7] Uploading audio to S3...")
         s3_audio_uri = self.upload_audio_to_s3(wav_audio_path, s3_audio_key)
 
         # Step 2: Transcribe audio
-        print("\n[2/6] Transcribing audio...")
+        print("\n[2/7] Transcribing audio...")
         job_name = f"job-{request_id}"
         transcript_data = self.transcribe_audio(s3_audio_uri, job_name)
 
         # Step 3: Save transcript
-        print("\n[3/6] Saving transcript...")
+        print("\n[3/7] Saving transcript...")
         local_transcript_path = os.path.join(request_dir, "transcript.json")
         self.save_transcript_to_file(transcript_data, local_transcript_path)
 
         s3_transcript_uri = self.upload_file_to_s3(local_transcript_path, s3_transcript_key)
 
-        # Step 4: Run vocal analysis
-        print("\n[4/6] Running vocal analysis and coaching...")
+        # Step 4: Clone speaker voices
+        voice_mapping = None
+        if should_clone_voices():
+            print("\n[4/7] Cloning speaker voices...")
+            try:
+                voice_mapping = self._clone_voices_from_transcript(
+                    audio_path=wav_audio_path,
+                    transcript_data=transcript_data,
+                    output_dir=os.path.join(request_dir, "voice_samples")
+                )
+                if voice_mapping:
+                    print(f"✓ Cloned {len(voice_mapping)} voice(s): {list(voice_mapping.keys())}")
+            except Exception as e:
+                print(f"⚠ Warning: Voice cloning failed: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print("\n[4/7] Skipping voice cloning (ELEVENLABS_VOICE_ID is set)")
+
+        # Step 5: Run vocal analysis
+        print("\n[5/7] Running vocal analysis and coaching...")
         analysis_output_dir = os.path.join(request_dir, "output")
 
         analysis_results = self.run_vocal_analysis(
@@ -335,8 +397,8 @@ class AudioProcessorService:
             skip_coaching=skip_coaching
         )
 
-        # Step 5: Generate structured metrics
-        print("\n[5/6] Generating structured metrics...")
+        # Step 6: Generate structured metrics
+        print("\n[6/7] Generating structured metrics...")
         coaching_analysis_path = analysis_results.get("analysis")
         coaching_feedback_path = analysis_results.get("coaching_feedback")
 
@@ -367,8 +429,8 @@ class AudioProcessorService:
                 import traceback
                 traceback.print_exc()
 
-        # Step 6: Upload all results to S3
-        print("\n[6/6] Uploading results to S3...")
+        # Step 7: Upload all results to S3
+        print("\n[7/7] Uploading results to S3...")
         s3_output_prefix = f"{request_id}/output"
         uploaded_files = self.upload_directory_to_s3(analysis_output_dir, s3_output_prefix)
 
@@ -389,6 +451,7 @@ class AudioProcessorService:
                 "local_path": local_transcript_path,
                 "s3_uri": s3_transcript_uri
             },
+            "voice_mapping": voice_mapping,
             "analysis": analysis_results,
             "s3_outputs": uploaded_files,
             "local_output_dir": analysis_output_dir

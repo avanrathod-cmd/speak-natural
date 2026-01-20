@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PlayCircle, Mic, Upload, TrendingUp, MessageSquare, Volume2, CheckCircle, AlertCircle, Play, Pause, RotateCcw, LogOut } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import { apiService } from './services/api';
@@ -22,6 +22,34 @@ import {
 } from './data/mockData';
 import './App.css';
 
+// Isolated timer component to prevent parent re-renders every second
+const RecordingTimer = ({ isRecording }: { isRecording: boolean }) => {
+  const [time, setTime] = useState(0);
+
+  useEffect(() => {
+    if (!isRecording) {
+      setTime(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setTime(prev => prev + 1);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isRecording]);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="text-2xl font-bold text-red-600 font-mono">{formatTime(time)}</div>
+  );
+};
+
 export default function SpeechCoachApp() {
   const { user, loading: authLoading, signInWithGoogle, signOut, getAccessToken } = useAuth();
 
@@ -31,7 +59,6 @@ export default function SpeechCoachApp() {
   const [playingVersion, setPlayingVersion] = useState<PlayingVersion | null>(null);
   const [hoveredSegment, setHoveredSegment] = useState<number | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
 
   // Theme selection state for recording
   const [showThemeSelection, setShowThemeSelection] = useState(false);
@@ -60,6 +87,9 @@ export default function SpeechCoachApp() {
   const [waveformQualitySegments, setWaveformQualitySegments] = useState<QualitySegment[]>([]);
   const [isLoadingWaveform, setIsLoadingWaveform] = useState(false);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+
+  // Ref to track if recording was cancelled (to prevent upload on cancel)
+  const recordingCancelledRef = useRef(false);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -199,8 +229,11 @@ export default function SpeechCoachApp() {
 
   const handleStartRecording = async () => {
     try {
+      // Reset cancelled flag when starting a new recording
+      recordingCancelledRef.current = false;
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' }); 
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
       const audioChunks: BlobPart[] = [];
 
       mediaRecorder.ondataavailable = (event) => {
@@ -208,18 +241,19 @@ export default function SpeechCoachApp() {
       };
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-        const audioFile = new File([audioBlob], 'recording.webm', { type: 'audio/webm' });
-
-        await handleFileUpload(audioFile);
-
         // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
+
+        // Only upload if recording was not cancelled
+        if (!recordingCancelledRef.current) {
+          const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+          const audioFile = new File([audioBlob], 'recording.webm', { type: 'audio/webm' });
+          await handleFileUpload(audioFile);
+        }
       };
 
       mediaRecorder.start();
       setIsRecording(true);
-      setRecordingTime(0);
 
       // Store mediaRecorder in window for access
       (window as any).currentRecorder = mediaRecorder;
@@ -233,6 +267,17 @@ export default function SpeechCoachApp() {
     if ((window as any).currentRecorder) {
       (window as any).currentRecorder.stop();
       setIsRecording(false);
+    }
+  };
+
+  const handleCancelRecording = () => {
+    if ((window as any).currentRecorder) {
+      recordingCancelledRef.current = true;
+      (window as any).currentRecorder.stop();
+      setIsRecording(false);
+      setShowThemeSelection(false);
+      setSelectedTheme(null);
+      setGeneratedPrompt(null);
     }
   };
 
@@ -286,23 +331,6 @@ export default function SpeechCoachApp() {
     setShowThemeSelection(false);
     setSelectedTheme(null);
     setGeneratedPrompt(null);
-  };
-
-  // Simulate recording timer
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isRecording) {
-      interval = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isRecording]);
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   // Login screen
@@ -373,6 +401,8 @@ export default function SpeechCoachApp() {
       return;
     }
 
+
+    // Ideally the audio should come from backend and cached
     const audio = new Audio(audioUrl);
 
     audio.onplay = () => {
@@ -798,7 +828,7 @@ export default function SpeechCoachApp() {
                 <div className="absolute inset-0 w-16 h-16 bg-red-600 rounded-full animate-ping opacity-20"></div>
               </div>
               <div className="text-left">
-                <div className="text-2xl font-bold text-red-600 font-mono">{formatTime(recordingTime)}</div>
+                <RecordingTimer isRecording={isRecording} />
                 <div className="text-sm text-gray-600">Recording in progress...</div>
               </div>
             </div>
@@ -818,17 +848,7 @@ export default function SpeechCoachApp() {
                 Stop & Analyze
               </button>
               <button
-                onClick={() => {
-                  if ((window as any).currentRecorder) {
-                    (window as any).currentRecorder.stop();
-                  }
-                  setIsRecording(false);
-                  setRecordingTime(0);
-                  // Reset theme selection state on cancel
-                  setShowThemeSelection(false);
-                  setSelectedTheme(null);
-                  setGeneratedPrompt(null);
-                }}
+                onClick={handleCancelRecording}
                 className="flex items-center gap-2 px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
               >
                 Cancel

@@ -290,7 +290,7 @@ def generate_improved_audio(
     text: str,
     issues: List[Dict],
     output_path: str,
-    voice_id: Optional[str] = None,
+    voice_id: str,
     api_key: Optional[str] = None
 ) -> str:
     """
@@ -300,17 +300,18 @@ def generate_improved_audio(
         text: Segment text
         issues: List of issues found in segment
         output_path: Path to save improved audio
-        voice_id: ElevenLabs voice ID (from env if not provided)
+        voice_id: ElevenLabs voice ID (required - either from cloning or env)
         api_key: ElevenLabs API key (from env if not provided)
 
     Returns:
         Path to generated audio file
     """
-    voice_id = voice_id or os.getenv('ELEVENLABS_VOICE_ID')
     api_key = api_key or os.getenv('ELEVENLABS_API_KEY')
 
-    if not voice_id or not api_key:
-        raise ValueError("ELEVENLABS_VOICE_ID and ELEVENLABS_API_KEY must be set")
+    if not voice_id:
+        raise ValueError("voice_id must be provided")
+    if not api_key:
+        raise ValueError("ELEVENLABS_API_KEY must be set")
 
     # Create improved text with adjustments based on issues
     improved_text = create_improved_ssml(text, issues)
@@ -373,11 +374,52 @@ def create_improved_ssml(text: str, issues: List[Dict]) -> str:
     return improved
 
 
+def get_voice_id_for_segment(
+    segment: Dict,
+    voice_mapping: Optional[Dict[str, str]] = None
+) -> Optional[str]:
+    """
+    Get the voice ID to use for a segment.
+
+    Priority:
+    1. Environment variable ELEVENLABS_VOICE_ID (if set)
+    2. Voice mapping for the segment's speaker (if available)
+
+    Args:
+        segment: Segment dictionary (may contain speaker info)
+        voice_mapping: Optional mapping of speaker labels to voice IDs
+
+    Returns:
+        Voice ID or None if not available
+    """
+    # First check environment variable
+    env_voice_id = os.getenv('ELEVENLABS_VOICE_ID')
+    if env_voice_id:
+        return env_voice_id
+
+    # Then check voice mapping for speaker
+    if voice_mapping:
+        # Try to get speaker from segment's words
+        words = segment.get('words', [])
+        if words:
+            # Get speaker from first word if available
+            speaker = words[0].get('speaker_label')
+            if speaker and speaker in voice_mapping:
+                return voice_mapping[speaker]
+
+        # If no speaker in words, use first available voice
+        if voice_mapping:
+            return list(voice_mapping.values())[0]
+
+    return None
+
+
 def generate_segments_with_audio(
     audio_path: str,
     coaching_analysis_path: str,
     output_dir: str,
-    max_segments: int = 6
+    max_segments: int = 6,
+    voice_mapping: Optional[Dict[str, str]] = None
 ) -> List[Dict]:
     """
     Generate segments with original and improved audio.
@@ -387,6 +429,7 @@ def generate_segments_with_audio(
         coaching_analysis_path: Path to coaching analysis JSON
         output_dir: Directory to save segment audio files
         max_segments: Maximum number of segments
+        voice_mapping: Optional mapping of speaker labels to cloned voice IDs
 
     Returns:
         List of segment dictionaries with audio paths
@@ -418,17 +461,25 @@ def generate_segments_with_audio(
         )
         segment['original_audio_path'] = original_path
 
+        # Get voice ID for this segment
+        voice_id = get_voice_id_for_segment(segment, voice_mapping)
+
         # Generate improved audio
-        try:
-            improved_path = os.path.join(improved_dir, f'segment_{segment_id}.wav')
-            generate_improved_audio(
-                text=segment['text'],
-                issues=segment['issues'],
-                output_path=improved_path
-            )
-            segment['improved_audio_path'] = improved_path
-        except Exception as e:
-            print(f"Warning: Could not generate improved audio for segment {segment_id}: {e}")
+        if voice_id:
+            try:
+                improved_path = os.path.join(improved_dir, f'segment_{segment_id}.wav')
+                generate_improved_audio(
+                    text=segment['text'],
+                    issues=segment['issues'],
+                    output_path=improved_path,
+                    voice_id=voice_id
+                )
+                segment['improved_audio_path'] = improved_path
+            except Exception as e:
+                print(f"Warning: Could not generate improved audio for segment {segment_id}: {e}")
+                segment['improved_audio_path'] = None
+        else:
+            print(f"Warning: No voice ID available for segment {segment_id}, skipping improved audio")
             segment['improved_audio_path'] = None
 
     return segments
