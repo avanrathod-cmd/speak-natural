@@ -1053,6 +1053,45 @@ async def download_all_results(
         raise HTTPException(status_code=500, detail=f"Error creating zip: {str(e)}")
 
 
+@app.get("/coaching/{coaching_id}/full_original", tags=["Coaching"])
+async def get_full_original(
+    coaching_id: str,
+    user: dict = Depends(get_current_user)
+):
+    """
+    Get the full original audio recording for a coaching session.
+
+    **Authentication Required**: Bearer token from Supabase
+
+    Args:
+        coaching_id: Coaching session ID
+        user: Authenticated user (from JWT token)
+
+    Returns:
+        Original audio file
+    """
+    metadata = storage_manager.load_session_metadata(coaching_id)
+
+    if not metadata:
+        raise HTTPException(status_code=404, detail=f"Coaching session not found: {coaching_id}")
+
+    if metadata.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied: not your coaching session")
+
+    # Check multiple possible locations for the audio file
+    audio_path = metadata.get("input", {}).get("wav_audio_file")
+
+
+    if not audio_path or not os.path.exists(audio_path):
+        raise HTTPException(status_code=404, detail="Original audio file not found")
+
+    return FileResponse(
+        path=audio_path,
+        media_type="audio/wav",
+        filename=os.path.basename(audio_path)
+    )
+
+
 @app.delete("/coaching/{coaching_id}", tags=["Coaching"])
 async def delete_coaching_session(
     coaching_id: str,

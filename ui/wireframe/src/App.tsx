@@ -87,6 +87,7 @@ export default function SpeechCoachApp() {
   const [waveformQualitySegments, setWaveformQualitySegments] = useState<QualitySegment[]>([]);
   const [isLoadingWaveform, setIsLoadingWaveform] = useState(false);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+  const [isPlayingFullOriginal, setIsPlayingFullOriginal] = useState(false);
 
   // Ref to track if recording was cancelled (to prevent upload on cancel)
   const recordingCancelledRef = useRef(false);
@@ -432,6 +433,62 @@ export default function SpeechCoachApp() {
     }
     setPlayingSegment(null);
     setPlayingVersion(null);
+    setIsPlayingFullOriginal(false);
+  };
+
+  const playFullOriginal = async () => {
+    if (!currentCoachingId) {
+      console.warn('No coaching ID available');
+      return;
+    }
+
+    // Stop any currently playing audio
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+    }
+
+    // If already playing full original, stop it
+    if (isPlayingFullOriginal) {
+      setIsPlayingFullOriginal(false);
+      setCurrentAudio(null);
+      return;
+    }
+
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        console.error('Not authenticated');
+        return;
+      }
+
+      const audioBlob = await apiService.getFullOriginalAudio(currentCoachingId, token);
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+
+      audio.onplay = () => {
+        setIsPlayingFullOriginal(true);
+        setPlayingSegment(null);
+        setPlayingVersion(null);
+      };
+
+      audio.onended = () => {
+        setIsPlayingFullOriginal(false);
+        URL.revokeObjectURL(audioUrl);
+      };
+
+      audio.onerror = (e) => {
+        console.error('Full original audio playback error:', e);
+        setIsPlayingFullOriginal(false);
+        URL.revokeObjectURL(audioUrl);
+      };
+
+      setCurrentAudio(audio);
+      audio.play();
+    } catch (error) {
+      console.error('Error fetching full original audio:', error);
+      setIsPlayingFullOriginal(false);
+    }
   };
 
   const SegmentPlayer = ({ segment }: { segment: TranscriptSegment }) => {
@@ -916,9 +973,20 @@ export default function SpeechCoachApp() {
               </p>
             </div>
             <div className="flex gap-2">
-              <button className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">
-                <PlayCircle className="w-5 h-5" />
-                Play Full Original
+              <button
+                onClick={playFullOriginal}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  isPlayingFullOriginal
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 hover:bg-gray-200'
+                }`}
+              >
+                {isPlayingFullOriginal ? (
+                  <Pause className="w-5 h-5" />
+                ) : (
+                  <PlayCircle className="w-5 h-5" />
+                )}
+                {isPlayingFullOriginal ? 'Stop' : 'Play Full Original'}
               </button>
               <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                 <PlayCircle className="w-5 h-5" />

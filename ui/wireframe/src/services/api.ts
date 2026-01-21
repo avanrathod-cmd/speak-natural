@@ -208,6 +208,20 @@ class ApiService {
 
     return response.json();
   }
+
+  async getFullOriginalAudio(coachingId: string, token: string): Promise<Blob> {
+    const response = await fetch(`${API_URL}/coaching/${coachingId}/full_original`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get full original audio: ${response.statusText}`);
+    }
+
+    return response.blob();
+  }
 }
 
 export const apiService = new ApiService();
