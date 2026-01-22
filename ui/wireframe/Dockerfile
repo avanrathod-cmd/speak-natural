@@ -1,7 +1,7 @@
 # SpeakRight Frontend Dockerfile
 
 # Build stage
-FROM node:20-alpine AS build
+FROM --platform=linux/amd64 node:20-alpine AS build
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ COPY . .
 RUN npm run build
 
 # Production stage - serve with nginx
-FROM nginx:alpine
+FROM --platform=linux/amd64 nginx:alpine
 
 # Copy custom nginx config
 COPY --from=build /app/build /usr/share/nginx/html

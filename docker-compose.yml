@@ -6,6 +6,7 @@ services:
     build:
       context: ./python
       dockerfile: Dockerfile
+    platform: linux/amd64
     container_name: speakright-api
     ports:
       - "8000:8000"
@@ -39,6 +40,7 @@ services:
         - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000}
         - REACT_APP_SUPABASE_URL=${REACT_APP_SUPABASE_URL}
         - REACT_APP_SUPABASE_ANON_KEY=${REACT_APP_SUPABASE_ANON_KEY}
+    platform: linux/amd64
     container_name: speakright-frontend
     ports:
       - "3000:80"

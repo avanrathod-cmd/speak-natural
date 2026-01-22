@@ -1,6 +1,6 @@
 # SpeakRight Coaching API Dockerfile
 
-FROM python:3.11-slim
+FROM --platform=linux/amd64 python:3.11-slim
 
 # Set working directory
 WORKDIR /app
