@@ -478,7 +478,9 @@ async def get_coaching_metrics(
 
     # Fallback: Load analysis results and calculate on-the-fly (old format)
     try:
-        analysis_path = metadata["analysis"]["analysis"]
+        analysis_path = metadata.get("analysis", {}).get("analysis")
+        if not analysis_path:
+            raise FileNotFoundError("Analysis path not found in metadata")
         with open(analysis_path, 'r') as f:
             analysis_data = json.load(f)
 
@@ -585,8 +587,11 @@ async def get_detailed_metrics(
         print(f"Generating structured metrics on-demand for {coaching_id}")
         from services.metrics_generator import generate_structured_metrics
 
-        analysis_path = metadata["analysis"]["analysis"]
-        coaching_feedback_path = metadata["analysis"].get("coaching_feedback")
+        analysis_path = metadata.get("analysis", {}).get("analysis")
+        coaching_feedback_path = metadata.get("analysis", {}).get("coaching_feedback")
+
+        if not analysis_path:
+            raise HTTPException(status_code=404, detail="Analysis not available for this session")
 
         structured_metrics = generate_structured_metrics(
             coaching_analysis_path=analysis_path,
@@ -648,7 +653,7 @@ async def get_coaching_feedback(
 
     try:
         # Load coaching feedback
-        coaching_feedback_path = metadata["analysis"].get("coaching_feedback")
+        coaching_feedback_path = metadata.get("analysis", {}).get("coaching_feedback")
 
         if not coaching_feedback_path or not os.path.exists(coaching_feedback_path):
             raise HTTPException(status_code=404, detail="Coaching feedback not available")
@@ -731,7 +736,10 @@ async def get_visualization(
         raise HTTPException(status_code=400, detail="Coaching analysis not yet completed")
 
     # Find visualization file
-    viz_dir = metadata["analysis"]["visualizations"]
+    viz_dir = metadata.get("analysis", {}).get("visualizations")
+    if not viz_dir:
+        raise HTTPException(status_code=404, detail="Visualizations not available for this session")
+
     viz_files = list(Path(viz_dir).glob(f"*{viz_type}*.svg"))
 
     if not viz_files:
@@ -811,10 +819,13 @@ async def get_waveform(
 
         # Generate waveform data
         audio_path = metadata.get("input", {}).get("wav_audio_file")
-        analysis_path = metadata["analysis"]["analysis"]
+        analysis_path = metadata.get("analysis", {}).get("analysis")
 
         if not audio_path or not os.path.exists(audio_path):
             raise HTTPException(status_code=404, detail="Audio file not found")
+
+        if not analysis_path or not os.path.exists(analysis_path):
+            raise HTTPException(status_code=404, detail="Analysis file not found. Session may be incomplete.")
 
         waveform_data = generate_waveform_data(
             audio_path=audio_path,
@@ -919,11 +930,14 @@ async def get_transcript_with_segments(
 
         # Generate segments
         audio_path = metadata.get("input", {}).get("wav_audio_file")
-        analysis_path = metadata["analysis"]["analysis"]
+        analysis_path = metadata.get("analysis", {}).get("analysis")
         coaching_feedback_path = metadata.get("analysis", {}).get("coaching_feedback")
 
         if not audio_path or not os.path.exists(audio_path):
             raise HTTPException(status_code=404, detail="Audio file not found")
+
+        if not analysis_path or not os.path.exists(analysis_path):
+            raise HTTPException(status_code=404, detail="Analysis file not found. Session may be incomplete.")
 
         segments_output_dir = os.path.join(session_dir, "output", "segments")
         os.makedirs(segments_output_dir, exist_ok=True)

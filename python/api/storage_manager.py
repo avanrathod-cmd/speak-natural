@@ -159,7 +159,7 @@ class StorageManager:
 
         if session:
             # Convert database format to legacy format
-            return {
+            metadata = {
                 "coaching_id": session["coaching_id"],
                 "user_id": session["user_id"],
                 "audio_filename": session["audio_filename"],
@@ -172,6 +172,25 @@ class StorageManager:
                 "updated_at": session["updated_at"],
                 "completed_at": session.get("completed_at"),
             }
+
+            # Reconstruct analysis paths from directories
+            directories = session.get("directories", {})
+            if directories:
+                analysis_dict = self._find_analysis_files(coaching_id, directories)
+                if analysis_dict:
+                    metadata["analysis"] = analysis_dict
+
+                # Also add input paths
+                input_dir = directories.get("input")
+                if input_dir:
+                    audio_filename = session["audio_filename"]
+                    wav_path = os.path.join(input_dir, audio_filename)
+                    if os.path.exists(wav_path):
+                        metadata["input"] = {
+                            "wav_audio_file": wav_path
+                        }
+
+            return metadata
 
         # Fallback to local JSON file (for backward compatibility)
         metadata_path = self.metadata_dir / f"{coaching_id}.json"
@@ -334,6 +353,51 @@ class StorageManager:
             return self.db.list_user_sessions(user_id)
         else:
             return self.db.list_all_sessions()
+
+    def _find_analysis_files(self, coaching_id: str, directories: Dict) -> Optional[Dict]:
+        """
+        Find analysis files from directories.
+
+        Scans the analysis, coaching, and visualization directories to find
+        the actual output files.
+
+        Args:
+            coaching_id: Coaching session ID
+            directories: Directories dictionary from metadata
+
+        Returns:
+            Dictionary with analysis file paths or None if not found
+        """
+        from glob import glob
+
+        analysis_dict = {}
+
+        # Find coaching analysis JSON
+        analysis_dir = directories.get("analysis")
+        if analysis_dir and os.path.exists(analysis_dir):
+            json_files = glob(os.path.join(analysis_dir, "*_coaching_analysis.json"))
+            if json_files:
+                analysis_dict["analysis"] = json_files[0]
+
+        # Find coaching feedback markdown
+        coaching_dir = directories.get("coaching")
+        if coaching_dir and os.path.exists(coaching_dir):
+            md_files = glob(os.path.join(coaching_dir, "*_coaching_feedback.md"))
+            if md_files:
+                analysis_dict["coaching_feedback"] = md_files[0]
+
+        # Find visualizations directory
+        viz_dir = directories.get("visualizations")
+        if viz_dir and os.path.exists(viz_dir):
+            analysis_dict["visualizations"] = viz_dir
+
+        # Find prosody data if exists
+        if coaching_dir and os.path.exists(coaching_dir):
+            prosody_files = glob(os.path.join(coaching_dir, "*_prosody_data.txt"))
+            if prosody_files:
+                analysis_dict["prosody_data"] = prosody_files[0]
+
+        return analysis_dict if analysis_dict else None
 
     def get_s3_prefix(self, coaching_id: str) -> str:
         """
