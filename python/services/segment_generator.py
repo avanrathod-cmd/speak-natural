@@ -587,7 +587,7 @@ def generate_segments_with_audio_intelligent(
                 improved_path = os.path.join(improved_dir, f'segment_{segment_id}.wav')
 
                 # Use improved_ssml if available, otherwise fall back to improved_text
-                improved_content = segment.get('improved_ssml') or segment.get('improved_text')
+                improved_content = segment.get('improved_ssml')
 
                 generate_improved_audio_from_ssml(
                     content=improved_content,
@@ -637,12 +637,11 @@ def generate_improved_audio_from_ssml(
     response = client.text_to_speech.convert(
         voice_id=voice_id,
         text=content,
-        model_id="eleven_multilingual_v2",
+        model_id="eleven_v3",
         voice_settings=VoiceSettings(
             stability=0.5,
             similarity_boost=0.75,
-            style=0.0,
-            use_speaker_boost=True
+            style=0.1,
         )
     )
 
