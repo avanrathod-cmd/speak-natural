@@ -14,6 +14,7 @@ from pathlib import Path
 import tempfile
 from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
+from services.intelligent_segment_selector import select_segments_with_claude, enrich_segments_with_metadata
 
 
 def select_interesting_segments(
@@ -483,6 +484,174 @@ def generate_segments_with_audio(
             segment['improved_audio_path'] = None
 
     return segments
+
+
+def generate_segments_with_audio_intelligent(
+    audio_path: str,
+    coaching_analysis_path: str,
+    coaching_feedback: str,
+    output_dir: str,
+    max_segments: int = 6,
+    voice_mapping: Optional[Dict[str, str]] = None,
+    api_key: Optional[str] = None
+) -> List[Dict]:
+    """
+    Generate segments with original and improved audio using Claude for intelligent selection.
+
+    This is the improved version that uses Claude to select pedagogically valuable segments
+    based on the coaching analysis, rather than using rule-based heuristics.
+
+    Args:
+        audio_path: Path to original audio file
+        coaching_analysis_path: Path to coaching analysis JSON
+        coaching_feedback: Text of coaching feedback from Claude
+        output_dir: Directory to save segment audio files
+        max_segments: Maximum number of segments
+        voice_mapping: Optional mapping of speaker labels to cloned voice IDs
+        api_key: Optional Anthropic API key (uses env var if not provided)
+
+    Returns:
+        List of segment dictionaries with audio paths
+
+    Example segment:
+    {
+        "segment_id": 1,
+        "time_range": {"start": 12.5, "end": 18.3},
+        "start_time": 12.5,  # Added for compatibility
+        "end_time": 18.3,    # Added for compatibility
+        "duration": 5.8,
+        "text": "So um I think...",  # Original text
+        "improved_text": "I think...",  # Improved text
+        "improved_ssml": "<prosody...>",  # SSML for improved version
+        "word_count": 10,
+        "severity": "error",
+        "issues": [...],
+        "coaching_tip": "...",
+        "original_audio_path": "/path/to/segment_1.wav",
+        "improved_audio_path": "/path/to/segment_1_improved.wav"
+    }
+    """
+    # Load analysis
+    with open(coaching_analysis_path, 'r') as f:
+        analysis = json.load(f)
+
+    print("🤖 Using Claude to select most valuable segments...")
+
+    # Use Claude to select segments intelligently
+    selection_result = select_segments_with_claude(
+        coaching_analysis=analysis,
+        coaching_feedback=coaching_feedback,
+        max_segments=max_segments,
+        api_key=api_key
+    )
+
+    segments = selection_result['segments']
+    print(f"✓ Claude selected {len(segments)} segments")
+    print(f"  Summary: {selection_result.get('selection_summary', '')}")
+
+    # Enrich with metadata
+    segments = enrich_segments_with_metadata(segments, analysis)
+
+    # Add start_time/end_time for compatibility with audio extraction
+    for segment in segments:
+        segment['start_time'] = segment['time_range']['start']
+        segment['end_time'] = segment['time_range']['end']
+        segment['text'] = segment['original_text']  # For compatibility
+
+    # Create output directories
+    original_dir = os.path.join(output_dir, 'original')
+    improved_dir = os.path.join(output_dir, 'improved')
+    os.makedirs(original_dir, exist_ok=True)
+    os.makedirs(improved_dir, exist_ok=True)
+
+    # Process each segment
+    for segment in segments:
+        segment_id = segment['segment_id']
+
+        # Extract original audio
+        original_path = os.path.join(original_dir, f'segment_{segment_id}.wav')
+        extract_segment_audio(
+            audio_path=audio_path,
+            start_time=segment['start_time'],
+            end_time=segment['end_time'],
+            output_path=original_path
+        )
+        segment['original_audio_path'] = original_path
+
+        # Get voice ID for this segment
+        voice_id = get_voice_id_for_segment(segment, voice_mapping)
+
+        # Generate improved audio using Claude's improved text/SSML
+        if voice_id:
+            try:
+                improved_path = os.path.join(improved_dir, f'segment_{segment_id}.wav')
+
+                # Use improved_ssml if available, otherwise fall back to improved_text
+                improved_content = segment.get('improved_ssml') or segment.get('improved_text')
+
+                generate_improved_audio_from_ssml(
+                    content=improved_content,
+                    output_path=improved_path,
+                    voice_id=voice_id
+                )
+                segment['improved_audio_path'] = improved_path
+            except Exception as e:
+                print(f"Warning: Could not generate improved audio for segment {segment_id}: {e}")
+                segment['improved_audio_path'] = None
+        else:
+            print(f"Warning: No voice ID available for segment {segment_id}, skipping improved audio")
+            segment['improved_audio_path'] = None
+
+    return segments
+
+
+def generate_improved_audio_from_ssml(
+    content: str,
+    output_path: str,
+    voice_id: str,
+    api_key: Optional[str] = None
+) -> str:
+    """
+    Generate improved audio from SSML or plain text using ElevenLabs.
+
+    Args:
+        content: SSML markup or plain text
+        output_path: Path to save improved audio
+        voice_id: ElevenLabs voice ID
+        api_key: ElevenLabs API key (from env if not provided)
+
+    Returns:
+        Path to generated audio file
+    """
+    api_key = api_key or os.getenv('ELEVENLABS_API_KEY')
+
+    if not voice_id:
+        raise ValueError("voice_id must be provided")
+    if not api_key:
+        raise ValueError("ELEVENLABS_API_KEY must be set")
+
+    # Initialize ElevenLabs client
+    client = ElevenLabs(api_key=api_key)
+
+    # Generate audio (ElevenLabs supports SSML-like tags)
+    response = client.text_to_speech.convert(
+        voice_id=voice_id,
+        text=content,
+        model_id="eleven_multilingual_v2",
+        voice_settings=VoiceSettings(
+            stability=0.5,
+            similarity_boost=0.75,
+            style=0.0,
+            use_speaker_boost=True
+        )
+    )
+
+    # Save audio
+    with open(output_path, 'wb') as f:
+        for chunk in response:
+            f.write(chunk)
+
+    return output_path
 
 
 if __name__ == "__main__":

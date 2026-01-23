@@ -47,7 +47,7 @@ from api.storage_manager import StorageManager
 from services.audio_processor import AudioProcessorService
 from api.auth import get_current_user, get_current_user_optional
 from services.waveform_generator import generate_waveform_data
-from services.segment_generator import generate_segments_with_audio
+from services.segment_generator import generate_segments_with_audio, generate_segments_with_audio_intelligent
 from utils.aws_utils import s3_client
 
 # Initialize FastAPI app
@@ -920,6 +920,7 @@ async def get_transcript_with_segments(
         # Generate segments
         audio_path = metadata.get("input", {}).get("wav_audio_file")
         analysis_path = metadata["analysis"]["analysis"]
+        coaching_feedback_path = metadata.get("analysis", {}).get("coaching_feedback")
 
         if not audio_path or not os.path.exists(audio_path):
             raise HTTPException(status_code=404, detail="Audio file not found")
@@ -930,14 +931,30 @@ async def get_transcript_with_segments(
         # Get voice mapping from metadata (if voice cloning was performed)
         voice_mapping = metadata.get("voice_mapping")
 
-        # Generate segments with audio
-        segments = generate_segments_with_audio(
-            audio_path=audio_path,
-            coaching_analysis_path=analysis_path,
-            output_dir=segments_output_dir,
-            max_segments=max_segments,
-            voice_mapping=voice_mapping
-        )
+        # Generate segments with audio using intelligent selection
+        if coaching_feedback_path and os.path.exists(coaching_feedback_path):
+            # Use Claude-powered intelligent selection
+            with open(coaching_feedback_path, 'r') as f:
+                coaching_feedback = f.read()
+
+            segments = generate_segments_with_audio_intelligent(
+                audio_path=audio_path,
+                coaching_analysis_path=analysis_path,
+                coaching_feedback=coaching_feedback,
+                output_dir=segments_output_dir,
+                max_segments=max_segments,
+                voice_mapping=voice_mapping
+            )
+        else:
+            # Fallback to rule-based selection
+            print("⚠ Warning: Coaching feedback not found, using rule-based segment selection")
+            segments = generate_segments_with_audio(
+                audio_path=audio_path,
+                coaching_analysis_path=analysis_path,
+                output_dir=segments_output_dir,
+                max_segments=max_segments,
+                voice_mapping=voice_mapping
+            )
 
         # Upload segment audio files to S3 and generate URLs
         for segment in segments:
