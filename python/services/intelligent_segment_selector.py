@@ -273,10 +273,29 @@ def enrich_segments_with_metadata(
         priority = segment.get('priority', 'medium')
         if priority == 'high':
             segment['severity'] = 'error'
+            segment['severity_score'] = 10.0
         elif priority == 'medium':
             segment['severity'] = 'warning'
+            segment['severity_score'] = 5.0
         else:
             segment['severity'] = 'good'
+            segment['severity_score'] = 0.0
+
+        # Add quality score (inverse of severity for good segments)
+        if segment['severity'] == 'good':
+            segment['quality_score'] = 10.0
+            segment['is_exemplary'] = True
+        else:
+            segment['quality_score'] = max(0, 10 - segment['severity_score'])
+            segment['is_exemplary'] = False
+
+        # Calculate metrics from duration and word count
+        pace_wpm = (word_count / segment['duration']) * 60 if segment['duration'] > 0 else 0
+        segment['metrics'] = {
+            'pace_wpm': round(pace_wpm, 1),
+            'filler_ratio': 0.0,  # Claude already removed fillers in improved text
+            'confidence': 1.0  # Assume high confidence for selected segments
+        }
 
         # Format issues for API response
         issues_list = []
@@ -287,6 +306,9 @@ def enrich_segments_with_metadata(
                 'tip': segment.get('coaching_tip', '')
             })
         segment['issues'] = issues_list
+
+        # Set primary_issue
+        segment['primary_issue'] = issues_list[0] if issues_list else None
 
     return segments
 
