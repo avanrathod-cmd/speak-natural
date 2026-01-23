@@ -1138,6 +1138,7 @@ async def delete_coaching_session(
 async def list_sessions(user: dict = Depends(get_current_user)):
     """
     List all coaching sessions for the authenticated user.
+    Now fetches directly from Supabase database.
 
     **Authentication Required**: Bearer token from Supabase
 
@@ -1148,22 +1149,20 @@ async def list_sessions(user: dict = Depends(get_current_user)):
         List of user's coaching sessions
     """
     user_id = user["user_id"]
-    all_sessions = storage_manager.list_sessions()
 
-    sessions_info = []
-    for coaching_id in all_sessions:
-        metadata = storage_manager.load_session_metadata(coaching_id)
-        if metadata.get("user_id") == user_id:
-            sessions_info.append({
-                "coaching_id": coaching_id,
-                "status": metadata.get("status"),
-                "created_at": metadata.get("created_at"),
-                "completed_at": metadata.get("completed_at"),
-                "audio_filename": metadata.get("audio_filename")
-            })
+    # Get sessions from database (already filtered by user_id and sorted)
+    sessions = storage_manager.list_sessions_detailed(user_id=user_id)
 
-    # Sort by created_at descending (newest first)
-    sessions_info.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    sessions_info = [
+        {
+            "coaching_id": session["coaching_id"],
+            "status": session["status"],
+            "created_at": session["created_at"],
+            "completed_at": session.get("completed_at"),
+            "audio_filename": session["audio_filename"]
+        }
+        for session in sessions
+    ]
 
     return {"sessions": sessions_info, "count": len(sessions_info)}
 
