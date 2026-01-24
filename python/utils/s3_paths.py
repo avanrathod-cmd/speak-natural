@@ -163,6 +163,42 @@ class S3PathManager:
         """Get local output directory."""
         return os.path.join(base_dir, coaching_id, "output")
 
+    def get_local_analysis_dir(self, coaching_id: str, base_dir: str = "/tmp/speak-right") -> str:
+        """Get local analysis directory."""
+        return os.path.join(base_dir, coaching_id, "output", "analysis")
+
+    def get_local_coaching_dir(self, coaching_id: str, base_dir: str = "/tmp/speak-right") -> str:
+        """Get local coaching directory."""
+        return os.path.join(base_dir, coaching_id, "output", "coaching")
+
+    def get_local_visualizations_dir(self, coaching_id: str, base_dir: str = "/tmp/speak-right") -> str:
+        """Get local visualizations directory."""
+        return os.path.join(base_dir, coaching_id, "output", "visualizations")
+
+    def get_local_metrics_dir(self, coaching_id: str, base_dir: str = "/tmp/speak-right") -> str:
+        """Get local metrics directory."""
+        return os.path.join(base_dir, coaching_id, "output", "metrics")
+
+    def get_local_segments_dir(self, coaching_id: str, base_dir: str = "/tmp/speak-right") -> str:
+        """Get local segments directory."""
+        return os.path.join(base_dir, coaching_id, "output", "segments")
+
+    def get_local_waveform_dir(self, coaching_id: str, base_dir: str = "/tmp/speak-right") -> str:
+        """Get local waveform cache directory."""
+        return os.path.join(base_dir, coaching_id, "output", "waveform")
+
+    def get_local_metrics_path(self, coaching_id: str, base_dir: str = "/tmp/speak-right") -> str:
+        """Get local path for structured metrics JSON."""
+        return os.path.join(self.get_local_metrics_dir(coaching_id, base_dir), "structured_metrics.json")
+
+    def get_local_waveform_cache_path(self, coaching_id: str, samples: int, base_dir: str = "/tmp/speak-right") -> str:
+        """Get local path for waveform cache JSON."""
+        return os.path.join(self.get_local_waveform_dir(coaching_id, base_dir), f"waveform_{samples}.json")
+
+    def get_local_segments_cache_path(self, coaching_id: str, max_segments: int, base_dir: str = "/tmp/speak-right") -> str:
+        """Get local path for segments cache JSON."""
+        return os.path.join(self.get_local_segments_dir(coaching_id, base_dir), f"segments_{max_segments}.json")
+
 
 def get_audio_stem(filename: str) -> str:
     """

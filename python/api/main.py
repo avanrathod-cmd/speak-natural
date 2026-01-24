@@ -454,8 +454,9 @@ async def get_coaching_metrics(
 
     # Try to load structured metrics first (new format)
     try:
+        pm = get_path_manager()
         session_dir = storage_manager.get_session_directory(coaching_id)
-        structured_metrics_path = os.path.join(session_dir, "output", "metrics", "structured_metrics.json")
+        structured_metrics_path = pm.get_local_metrics_path(coaching_id, base_dir=storage_manager.base_dir)
 
         if os.path.exists(structured_metrics_path):
             with open(structured_metrics_path, 'r') as f:
@@ -551,8 +552,9 @@ async def get_detailed_metrics(
         raise HTTPException(status_code=400, detail="Coaching analysis not yet completed")
 
     try:
+        pm = get_path_manager()
         session_dir = storage_manager.get_session_directory(coaching_id)
-        structured_metrics_path = os.path.join(session_dir, "output", "metrics", "structured_metrics.json")
+        structured_metrics_path = pm.get_local_metrics_path(coaching_id, base_dir=storage_manager.base_dir)
 
         # Check if cached locally
         if os.path.exists(structured_metrics_path):
@@ -810,8 +812,9 @@ async def get_waveform(
 
     try:
         # Check if waveform data already cached (local first, S3 fallback could be added later)
+        pm = get_path_manager()
         session_dir = storage_manager.get_session_directory(coaching_id)
-        waveform_cache_path = os.path.join(session_dir, "output", "waveform", f"waveform_{samples}.json")
+        waveform_cache_path = pm.get_local_waveform_cache_path(coaching_id, samples, base_dir=storage_manager.base_dir)
 
         if os.path.exists(waveform_cache_path):
             # Return cached data
@@ -916,8 +919,9 @@ async def get_transcript_with_segments(
 
     try:
         # Check if segments are already generated (local first, S3 fallback could be added later)
+        pm = get_path_manager()
         session_dir = storage_manager.get_session_directory(coaching_id)
-        segments_cache_path = os.path.join(session_dir, "output", "segments", f"segments_{max_segments}.json")
+        segments_cache_path = pm.get_local_segments_cache_path(coaching_id, max_segments, base_dir=storage_manager.base_dir)
 
         if os.path.exists(segments_cache_path):
             # Return cached segments
@@ -944,7 +948,7 @@ async def get_transcript_with_segments(
         audio_path = storage_manager.ensure_local_file(audio_path_or_url, coaching_id, "audio")
         analysis_path = storage_manager.ensure_local_file(analysis_path_or_url, coaching_id, "analysis")
 
-        segments_output_dir = os.path.join(session_dir, "output", "segments")
+        segments_output_dir = pm.get_local_segments_dir(coaching_id, base_dir=storage_manager.base_dir)
         os.makedirs(segments_output_dir, exist_ok=True)
 
         # Get voice mapping from metadata (if voice cloning was performed)

@@ -390,7 +390,8 @@ class AudioProcessorService:
 
         # Step 5: Run vocal analysis
         print("\n[5/7] Running vocal analysis and coaching...")
-        analysis_output_dir = os.path.join(request_dir, "output")
+        pm = get_path_manager()
+        analysis_output_dir = pm.get_local_output_dir(request_id, base_dir=output_base_dir)
 
         analysis_results = self.run_vocal_analysis(
             transcript_path=local_transcript_path,
@@ -412,7 +413,8 @@ class AudioProcessorService:
                 )
 
                 # Save structured metrics
-                metrics_path = os.path.join(analysis_output_dir, "metrics", "structured_metrics.json")
+                pm = get_path_manager()
+                metrics_path = pm.get_local_metrics_path(request_id, base_dir=output_base_dir)
                 os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
 
                 with open(metrics_path, 'w') as f:
