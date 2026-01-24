@@ -929,15 +929,19 @@ async def get_transcript_with_segments(
                 )
 
         # Generate segments
-        audio_path = metadata.get("input", {}).get("wav_audio_file")
-        analysis_path = metadata.get("analysis", {}).get("analysis")
-        coaching_feedback_path = metadata.get("analysis", {}).get("coaching_feedback")
+        audio_path_or_url = metadata.get("input", {}).get("wav_audio_file")
+        analysis_path_or_url = metadata.get("analysis", {}).get("analysis")
+        coaching_feedback_path_or_url = metadata.get("analysis", {}).get("coaching_feedback")
 
-        if not audio_path or not os.path.exists(audio_path):
+        if not audio_path_or_url:
             raise HTTPException(status_code=404, detail="Audio file not found")
 
-        if not analysis_path or not os.path.exists(analysis_path):
+        if not analysis_path_or_url:
             raise HTTPException(status_code=404, detail="Analysis file not found. Session may be incomplete.")
+
+        # Ensure files are local (download from S3 if needed - Cloud Run compatible)
+        audio_path = storage_manager.ensure_local_file(audio_path_or_url, coaching_id, "audio")
+        analysis_path = storage_manager.ensure_local_file(analysis_path_or_url, coaching_id, "analysis")
 
         segments_output_dir = os.path.join(session_dir, "output", "segments")
         os.makedirs(segments_output_dir, exist_ok=True)
@@ -946,7 +950,12 @@ async def get_transcript_with_segments(
         voice_mapping = metadata.get("voice_mapping")
 
         # Generate segments with audio using intelligent selection
-        if coaching_feedback_path and os.path.exists(coaching_feedback_path):
+        if coaching_feedback_path_or_url:
+            # Ensure coaching feedback is local
+            coaching_feedback_path = storage_manager.ensure_local_file(
+                coaching_feedback_path_or_url, coaching_id, "coaching_feedback"
+            )
+
             # Use Claude-powered intelligent selection
             with open(coaching_feedback_path, 'r') as f:
                 coaching_feedback = f.read()
