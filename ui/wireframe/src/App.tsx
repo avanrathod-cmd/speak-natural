@@ -12,9 +12,7 @@ import {
   PracticeTheme
 } from './types';
 import {
-  mockTranscriptSegments,
   mockProgressData,
-  mockWaveformSegments,
   convertTranscriptSegmentsToUI,
   convertWaveformToUI,
   renderDialogueWithEmphasis,
@@ -126,8 +124,8 @@ export default function SpeechCoachApp() {
       setTranscriptSegments(uiSegments);
     } catch (error) {
       console.error('Error loading transcript:', error);
-      // Fallback to mock data on error
-      setTranscriptSegments(mockTranscriptSegments);
+      // Don't set mock data - let the UI show an error state
+      setTranscriptSegments([]);
     } finally {
       setIsLoadingTranscript(false);
     }
@@ -145,7 +143,7 @@ export default function SpeechCoachApp() {
       setWaveformQualitySegments(qualitySegments);
     } catch (error) {
       console.error('Error loading waveform:', error);
-      // Fallback to mock on error
+      // Don't set mock data - let the UI show an error state
       setWaveformPeaks([]);
       setWaveformQualitySegments([]);
     } finally {
@@ -178,13 +176,22 @@ export default function SpeechCoachApp() {
     setActiveView('analysis');
   }, [getAccessToken, loadTranscript, loadWaveform]);
 
-  // Poll for processing status
+  // Poll for processing status (with proper request throttling)
   useEffect(() => {
     if (!currentCoachingId || processingStatus === 'completed' || processingStatus === 'failed') {
       return;
     }
 
+    let isPolling = false;
+    let timeoutId: NodeJS.Timeout;
+
     const pollStatus = async () => {
+      // Skip if already polling
+      if (isPolling) {
+        return;
+      }
+
+      isPolling = true;
       try {
         const token = await getAccessToken();
         if (!token) return;
@@ -195,14 +202,27 @@ export default function SpeechCoachApp() {
         if (status.status === 'completed') {
           // Load metrics once processing is complete
           loadMetrics(currentCoachingId);
+        } else {
+          // Schedule next poll only after current one completes
+          timeoutId = setTimeout(pollStatus, 3000);
         }
       } catch (error) {
         console.error('Error polling status:', error);
+        // Retry after error
+        timeoutId = setTimeout(pollStatus, 3000);
+      } finally {
+        isPolling = false;
       }
     };
 
-    const interval = setInterval(pollStatus, 3000); // Poll every 3 seconds
-    return () => clearInterval(interval);
+    // Start polling immediately
+    pollStatus();
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, [currentCoachingId, processingStatus, getAccessToken, loadMetrics]);
 
   const handleFileUpload = async (file: File) => {
@@ -612,17 +632,14 @@ export default function SpeechCoachApp() {
       }
 
       if (waveformPeaks.length === 0) {
-        // Fallback to mock visualization
+        // Show message when no waveform data available
         return (
-          <>
-            {mockWaveformSegments.map((seg, idx) => (
-              <div
-                key={idx}
-                className={`${seg.color} rounded-t cursor-pointer hover:opacity-80 transition-opacity`}
-                style={{ width: seg.width, height: seg.height }}
-              />
-            ))}
-          </>
+          <div className="flex items-center justify-center h-full text-gray-500">
+            <div className="text-center">
+              <div className="text-sm">Waveform data not available</div>
+              <div className="text-xs mt-1">Audio is still being processed</div>
+            </div>
+          </div>
         );
       }
 
@@ -1051,10 +1068,17 @@ export default function SpeechCoachApp() {
                     <SegmentPlayer key={segment.id} segment={segment} />
                   ))}
                 </div>
+              ) : processingStatus === 'processing' || processingStatus === 'pending' ? (
+                <div className="p-8 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                  <div className="text-sm text-gray-600 mb-1">Processing your audio...</div>
+                  <div className="text-xs text-gray-500">This may take a few minutes depending on audio length</div>
+                </div>
               ) : (
                 <div className="p-8 text-center text-gray-500">
                   <MessageSquare className="w-12 h-12 mx-auto mb-2 opacity-50" />
                   <div>No transcript segments available</div>
+                  <div className="text-xs mt-1">Try uploading a new audio file</div>
                 </div>
               )}
 
