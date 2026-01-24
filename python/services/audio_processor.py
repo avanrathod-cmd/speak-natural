@@ -28,6 +28,7 @@ sys.path.insert(0, str(current_dir))
 from speach_to_text.transcribe import read_transcription, transcribe_audio_from_s3
 from vocal_analysis.run_full_coaching import run_full_coaching_pipeline
 from utils.aws_utils import s3_client
+from utils.s3_paths import get_path_manager, get_audio_stem
 from services.metrics_generator import generate_structured_metrics
 from services.voice_cloning_service import VoiceCloningService, should_clone_voices
 
@@ -345,11 +346,12 @@ class AudioProcessorService:
         wav_audio_path, was_converted = ensure_wav_format(audio_file_path)
 
         audio_filename = Path(wav_audio_path).name
-        audio_stem = Path(wav_audio_path).stem
+        audio_stem = get_audio_stem(audio_filename)
 
-        # S3 keys
-        s3_audio_key = f"{request_id}/input/{audio_filename}"
-        s3_transcript_key = f"{request_id}/transcript/{audio_stem}_transcript.json"
+        # S3 keys using centralized path manager
+        pm = get_path_manager()
+        s3_audio_key = pm.get_input_key(request_id, audio_filename)
+        s3_transcript_key = pm.get_transcript_key(request_id, stem=audio_stem)
 
         # Step 1: Upload audio to S3
         print("\n[1/7] Uploading audio to S3...")
@@ -431,7 +433,8 @@ class AudioProcessorService:
 
         # Step 7: Upload all results to S3
         print("\n[7/7] Uploading results to S3...")
-        s3_output_prefix = f"{request_id}/output"
+        pm = get_path_manager()
+        s3_output_prefix = f"{request_id}/output"  # Keep as is - upload_directory handles subpaths
         uploaded_files = self.upload_directory_to_s3(analysis_output_dir, s3_output_prefix)
 
         print("\n" + "=" * 80)

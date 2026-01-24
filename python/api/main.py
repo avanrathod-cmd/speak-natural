@@ -49,6 +49,7 @@ from api.auth import get_current_user, get_current_user_optional
 from services.waveform_generator import generate_waveform_data
 from services.segment_generator import generate_segments_with_audio, generate_segments_with_audio_intelligent
 from utils.aws_utils import s3_client
+from utils.s3_paths import get_path_manager
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -808,7 +809,7 @@ async def get_waveform(
         raise HTTPException(status_code=400, detail="Coaching analysis not yet completed")
 
     try:
-        # Check if waveform data already cached
+        # Check if waveform data already cached (local first, S3 fallback could be added later)
         session_dir = storage_manager.get_session_directory(coaching_id)
         waveform_cache_path = os.path.join(session_dir, "output", "waveform", f"waveform_{samples}.json")
 
@@ -914,7 +915,7 @@ async def get_transcript_with_segments(
         raise HTTPException(status_code=400, detail="Coaching analysis not yet completed")
 
     try:
-        # Check if segments are already generated
+        # Check if segments are already generated (local first, S3 fallback could be added later)
         session_dir = storage_manager.get_session_directory(coaching_id)
         segments_cache_path = os.path.join(session_dir, "output", "segments", f"segments_{max_segments}.json")
 
@@ -980,12 +981,14 @@ async def get_transcript_with_segments(
             )
 
         # Upload segment audio files to S3 and generate URLs
+        pm = get_path_manager()
+
         for segment in segments:
             segment_id = segment['segment_id']
 
             # Upload original audio
             if segment.get('original_audio_path') and os.path.exists(segment['original_audio_path']):
-                s3_key_original = f"{coaching_id}/segments/original/segment_{segment_id}.wav"
+                s3_key_original = pm.get_segment_original_key(coaching_id, segment_id)
                 with open(segment['original_audio_path'], 'rb') as f:
                     s3_client.put_object(
                         Bucket=audio_processor.bucket_name,
@@ -1004,7 +1007,7 @@ async def get_transcript_with_segments(
 
             # Upload improved audio
             if segment.get('improved_audio_path') and os.path.exists(segment['improved_audio_path']):
-                s3_key_improved = f"{coaching_id}/segments/improved/segment_{segment_id}.wav"
+                s3_key_improved = pm.get_segment_improved_key(coaching_id, segment_id)
                 with open(segment['improved_audio_path'], 'rb') as f:
                     s3_client.put_object(
                         Bucket=audio_processor.bucket_name,

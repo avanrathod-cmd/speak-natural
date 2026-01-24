@@ -67,8 +67,19 @@ class S3PathManager:
         """Get S3 key for input audio file."""
         return f"{coaching_id}/input/{filename}"
 
-    def get_transcript_key(self, coaching_id: str) -> str:
-        """Get S3 key for transcript JSON."""
+    def get_transcript_key(self, coaching_id: str, stem: Optional[str] = None) -> str:
+        """
+        Get S3 key for transcript JSON.
+
+        Args:
+            coaching_id: Coaching session ID
+            stem: Optional audio stem (defaults to 'transcript' if not provided)
+
+        Returns:
+            S3 key for transcript
+        """
+        if stem:
+            return f"{coaching_id}/transcript/{stem}_transcript.json"
         return f"{coaching_id}/transcript/transcript.json"
 
     def get_analysis_key(self, coaching_id: str, stem: str) -> str:
