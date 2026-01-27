@@ -71,6 +71,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+print(f"Starting Speak Natural API server on port {os.getenv('PORT', '8080')}")
+
 # Initialize services
 storage_manager = StorageManager(base_dir=os.getenv("STORAGE_DIR", "/tmp/speak-right"))
 audio_processor = AudioProcessorService(bucket_name=os.getenv("S3_BUCKET", "speach-analyzer"))
@@ -1321,8 +1323,6 @@ if __name__ == "__main__":
         storage_manager.base_dir = args.output_dir
         os.makedirs(args.output_dir, exist_ok=True)
         print(f"Using output directory: {args.output_dir}")
-    print(f"Starting Speak Natural Coaching API server on "
-        f"{args.host}:{args.port} (reload={args.reload})")
     uvicorn.run(
         "api.main:app",
         host=args.host,
