@@ -1077,46 +1077,80 @@ export default function SpeechCoachApp() {
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                   <MessageSquare className="w-5 h-5 text-blue-600" />
                   Detailed AI Coaching
+                  {metrics?.metrics?.ai_insights?.confidence && (
+                    <span className={`ml-2 px-2 py-0.5 text-xs font-medium rounded-full ${
+                      metrics.metrics.ai_insights.confidence === 'high'
+                        ? 'bg-green-100 text-green-800'
+                        : metrics.metrics.ai_insights.confidence === 'medium'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {metrics.metrics.ai_insights.confidence} confidence
+                    </span>
+                  )}
                 </h3>
                 <span className="text-2xl text-gray-400">{expandedSection === 'feedback' ? '−' : '+'}</span>
               </div>
 
               {expandedSection === 'feedback' && (
                 <div className="space-y-4">
-                  <div className="flex gap-3">
-                    <AlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-medium text-gray-900 mb-1">Speaking Too Quickly (Segment 2)</div>
-                      <p className="text-sm text-gray-600 mb-2">
-                        You're averaging 180 words per minute in this section. American listeners prefer 130-150 wpm
-                        for sales conversations. This makes you sound rushed and harder to follow.
+                  {/* Overall Impression */}
+                  {metrics?.metrics?.ai_insights?.overall_impression && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                      <div className="font-medium text-blue-900 mb-2">Overall Assessment</div>
+                      <p className="text-sm text-blue-800">
+                        {metrics.metrics.ai_insights.overall_impression}
                       </p>
-                      <div className="text-sm font-medium text-blue-600">Tip: Add a pause after "platform" and before "and show you"</div>
                     </div>
-                  </div>
+                  )}
 
-                  <div className="flex gap-3">
-                    <AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-medium text-gray-900 mb-1">Weak Sentence Endings (Segment 3)</div>
-                      <p className="text-sm text-gray-600 mb-2">
-                        Your voice drops off at "five years", making you sound uncertain.
-                        Americans expect confident endings, especially on declarative statements.
-                      </p>
-                      <div className="text-sm font-medium text-blue-600">Tip: Maintain energy through "years" - treat it like an important word</div>
-                    </div>
-                  </div>
+                  {/* Top Improvements */}
+                  {metrics?.metrics?.ai_insights?.top_improvements && metrics.metrics.ai_insights.top_improvements.length > 0 && (
+                    <>
+                      <div className="font-semibold text-gray-900 text-sm uppercase tracking-wide mb-2">
+                        Areas to Improve
+                      </div>
+                      {metrics.metrics.ai_insights.top_improvements.map((improvement, idx) => (
+                        <div key={`improvement-${idx}`} className="flex gap-3">
+                          <AlertCircle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
+                            idx === 0 ? 'text-orange-500' : 'text-yellow-500'
+                          }`} />
+                          <div>
+                            <p className="text-sm text-gray-700">
+                              {improvement}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
 
-                  <div className="flex gap-3">
-                    <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-medium text-gray-900 mb-1">Excellent Opening (Segment 1)</div>
-                      <p className="text-sm text-gray-600">
-                        Your greeting has perfect pacing and warm tone. This is exactly how American sales professionals
-                        open conversations. Keep doing this!
-                      </p>
+                  {/* Top Strengths */}
+                  {metrics?.metrics?.ai_insights?.top_strengths && metrics.metrics.ai_insights.top_strengths.length > 0 && (
+                    <>
+                      <div className="font-semibold text-gray-900 text-sm uppercase tracking-wide mb-2 mt-6">
+                        Your Strengths
+                      </div>
+                      {metrics.metrics.ai_insights.top_strengths.map((strength, idx) => (
+                        <div key={`strength-${idx}`} className="flex gap-3">
+                          <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm text-gray-700">
+                              {strength}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Fallback if no AI insights */}
+                  {!metrics?.metrics?.ai_insights && (
+                    <div className="text-center py-8 text-gray-500">
+                      <MessageSquare className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                      <div>AI insights not available for this session</div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
             </div>

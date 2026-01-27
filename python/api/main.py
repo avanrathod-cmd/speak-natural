@@ -47,7 +47,7 @@ from api.storage_manager import StorageManager
 from services.audio_processor import AudioProcessorService
 from api.auth import get_current_user, get_current_user_optional
 from services.waveform_generator import generate_waveform_data
-from services.segment_generator import generate_segments_with_audio
+from services.segment_generator import generate_segments_with_audio, generate_segments_with_audio_intelligent
 from utils.aws_utils import s3_client
 
 # Initialize FastAPI app
@@ -58,9 +58,13 @@ app = FastAPI(
 )
 
 # Add CORS middleware
+# Get allowed origins from environment variable or allow all for development
+allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "*")
+allowed_origins = ["*"] if allowed_origins_str == "*" else allowed_origins_str.split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -474,7 +478,9 @@ async def get_coaching_metrics(
 
     # Fallback: Load analysis results and calculate on-the-fly (old format)
     try:
-        analysis_path = metadata["analysis"]["analysis"]
+        analysis_path = metadata.get("analysis", {}).get("analysis")
+        if not analysis_path:
+            raise FileNotFoundError("Analysis path not found in metadata")
         with open(analysis_path, 'r') as f:
             analysis_data = json.load(f)
 
@@ -581,8 +587,11 @@ async def get_detailed_metrics(
         print(f"Generating structured metrics on-demand for {coaching_id}")
         from services.metrics_generator import generate_structured_metrics
 
-        analysis_path = metadata["analysis"]["analysis"]
-        coaching_feedback_path = metadata["analysis"].get("coaching_feedback")
+        analysis_path = metadata.get("analysis", {}).get("analysis")
+        coaching_feedback_path = metadata.get("analysis", {}).get("coaching_feedback")
+
+        if not analysis_path:
+            raise HTTPException(status_code=404, detail="Analysis not available for this session")
 
         structured_metrics = generate_structured_metrics(
             coaching_analysis_path=analysis_path,
@@ -644,7 +653,7 @@ async def get_coaching_feedback(
 
     try:
         # Load coaching feedback
-        coaching_feedback_path = metadata["analysis"].get("coaching_feedback")
+        coaching_feedback_path = metadata.get("analysis", {}).get("coaching_feedback")
 
         if not coaching_feedback_path or not os.path.exists(coaching_feedback_path):
             raise HTTPException(status_code=404, detail="Coaching feedback not available")
@@ -727,7 +736,10 @@ async def get_visualization(
         raise HTTPException(status_code=400, detail="Coaching analysis not yet completed")
 
     # Find visualization file
-    viz_dir = metadata["analysis"]["visualizations"]
+    viz_dir = metadata.get("analysis", {}).get("visualizations")
+    if not viz_dir:
+        raise HTTPException(status_code=404, detail="Visualizations not available for this session")
+
     viz_files = list(Path(viz_dir).glob(f"*{viz_type}*.svg"))
 
     if not viz_files:
@@ -807,10 +819,13 @@ async def get_waveform(
 
         # Generate waveform data
         audio_path = metadata.get("input", {}).get("wav_audio_file")
-        analysis_path = metadata["analysis"]["analysis"]
+        analysis_path = metadata.get("analysis", {}).get("analysis")
 
         if not audio_path or not os.path.exists(audio_path):
             raise HTTPException(status_code=404, detail="Audio file not found")
+
+        if not analysis_path or not os.path.exists(analysis_path):
+            raise HTTPException(status_code=404, detail="Analysis file not found. Session may be incomplete.")
 
         waveform_data = generate_waveform_data(
             audio_path=audio_path,
@@ -915,10 +930,14 @@ async def get_transcript_with_segments(
 
         # Generate segments
         audio_path = metadata.get("input", {}).get("wav_audio_file")
-        analysis_path = metadata["analysis"]["analysis"]
+        analysis_path = metadata.get("analysis", {}).get("analysis")
+        coaching_feedback_path = metadata.get("analysis", {}).get("coaching_feedback")
 
         if not audio_path or not os.path.exists(audio_path):
             raise HTTPException(status_code=404, detail="Audio file not found")
+
+        if not analysis_path or not os.path.exists(analysis_path):
+            raise HTTPException(status_code=404, detail="Analysis file not found. Session may be incomplete.")
 
         segments_output_dir = os.path.join(session_dir, "output", "segments")
         os.makedirs(segments_output_dir, exist_ok=True)
@@ -926,14 +945,30 @@ async def get_transcript_with_segments(
         # Get voice mapping from metadata (if voice cloning was performed)
         voice_mapping = metadata.get("voice_mapping")
 
-        # Generate segments with audio
-        segments = generate_segments_with_audio(
-            audio_path=audio_path,
-            coaching_analysis_path=analysis_path,
-            output_dir=segments_output_dir,
-            max_segments=max_segments,
-            voice_mapping=voice_mapping
-        )
+        # Generate segments with audio using intelligent selection
+        if coaching_feedback_path and os.path.exists(coaching_feedback_path):
+            # Use Claude-powered intelligent selection
+            with open(coaching_feedback_path, 'r') as f:
+                coaching_feedback = f.read()
+
+            segments = generate_segments_with_audio_intelligent(
+                audio_path=audio_path,
+                coaching_analysis_path=analysis_path,
+                coaching_feedback=coaching_feedback,
+                output_dir=segments_output_dir,
+                max_segments=max_segments,
+                voice_mapping=voice_mapping
+            )
+        else:
+            # Fallback to rule-based selection
+            print("⚠ Warning: Coaching feedback not found, using rule-based segment selection")
+            segments = generate_segments_with_audio(
+                audio_path=audio_path,
+                coaching_analysis_path=analysis_path,
+                output_dir=segments_output_dir,
+                max_segments=max_segments,
+                voice_mapping=voice_mapping
+            )
 
         # Upload segment audio files to S3 and generate URLs
         for segment in segments:
@@ -1134,6 +1169,7 @@ async def delete_coaching_session(
 async def list_sessions(user: dict = Depends(get_current_user)):
     """
     List all coaching sessions for the authenticated user.
+    Now fetches directly from Supabase database.
 
     **Authentication Required**: Bearer token from Supabase
 
@@ -1144,22 +1180,20 @@ async def list_sessions(user: dict = Depends(get_current_user)):
         List of user's coaching sessions
     """
     user_id = user["user_id"]
-    all_sessions = storage_manager.list_sessions()
 
-    sessions_info = []
-    for coaching_id in all_sessions:
-        metadata = storage_manager.load_session_metadata(coaching_id)
-        if metadata.get("user_id") == user_id:
-            sessions_info.append({
-                "coaching_id": coaching_id,
-                "status": metadata.get("status"),
-                "created_at": metadata.get("created_at"),
-                "completed_at": metadata.get("completed_at"),
-                "audio_filename": metadata.get("audio_filename")
-            })
+    # Get sessions from database (already filtered by user_id and sorted)
+    sessions = storage_manager.list_sessions_detailed(user_id=user_id)
 
-    # Sort by created_at descending (newest first)
-    sessions_info.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    sessions_info = [
+        {
+            "coaching_id": session["coaching_id"],
+            "status": session["status"],
+            "created_at": session["created_at"],
+            "completed_at": session.get("completed_at"),
+            "audio_filename": session["audio_filename"]
+        }
+        for session in sessions
+    ]
 
     return {"sessions": sessions_info, "count": len(sessions_info)}
 
