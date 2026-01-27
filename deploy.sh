@@ -12,6 +12,7 @@ NC='\033[0m' # No Color
 # Configuration
 PROJECT_ID="${GCP_PROJECT_ID:-}"
 REGION="${GCP_REGION:-us-central1}"
+FRONTEND_REGION="${GCP_FRONTEND_REGION:-asia-southeast1}"
 
 # Deployment options
 DEPLOY_BACKEND=true
@@ -40,7 +41,8 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Environment Variables:"
             echo "  GCP_PROJECT_ID        Google Cloud project ID (required)"
-            echo "  GCP_REGION            Google Cloud region (default: us-central1)"
+            echo "  GCP_REGION            Backend region (default: us-central1)"
+            echo "  GCP_FRONTEND_REGION   Frontend region (default: asia-southeast1)"
             echo ""
             echo "Examples:"
             echo "  ./deploy.sh                    # Deploy both backend and UI"
@@ -59,11 +61,15 @@ done
 echo -e "${BLUE}=== SpeakRight Google Cloud Deployment ===${NC}\n"
 
 if [ "$DEPLOY_BACKEND" = true ] && [ "$DEPLOY_UI" = true ]; then
-    echo -e "${YELLOW}Deploying: Backend + UI${NC}\n"
+    echo -e "${YELLOW}Deploying: Backend + UI${NC}"
+    echo -e "${BLUE}Backend region: ${REGION}${NC}"
+    echo -e "${BLUE}Frontend region: ${FRONTEND_REGION}${NC}\n"
 elif [ "$DEPLOY_BACKEND" = true ]; then
-    echo -e "${YELLOW}Deploying: Backend only${NC}\n"
+    echo -e "${YELLOW}Deploying: Backend only${NC}"
+    echo -e "${BLUE}Backend region: ${REGION}${NC}\n"
 else
-    echo -e "${YELLOW}Deploying: UI only${NC}\n"
+    echo -e "${YELLOW}Deploying: UI only${NC}"
+    echo -e "${BLUE}Frontend region: ${FRONTEND_REGION}${NC}\n"
 fi
 
 # Check if PROJECT_ID is set
@@ -189,21 +195,21 @@ fi
 cd ui/wireframe
 gcloud builds submit \
     --config cloudbuild.yaml \
-    --substitutions=_REGION="$REGION",_API_URL="$BACKEND_URL",_SUPABASE_URL="$SUPABASE_URL",_SUPABASE_ANON_KEY="$SUPABASE_KEY"
+    --substitutions=_REGION="$FRONTEND_REGION",_API_URL="$BACKEND_URL",_SUPABASE_URL="$SUPABASE_URL",_SUPABASE_ANON_KEY="$SUPABASE_KEY"
 
 cd ../..
 
     # Get frontend URL
     FRONTEND_URL=$(gcloud run services describe speakright-frontend \
-        --region "$REGION" \
+        --region "$FRONTEND_REGION" \
         --format='value(status.url)')
 
     echo -e "\n${GREEN}✓ Frontend deployed at: ${FRONTEND_URL}${NC}"
 else
     # Get existing frontend URL if available
-    if gcloud run services describe speakright-frontend --region "$REGION" &> /dev/null; then
+    if gcloud run services describe speakright-frontend --region "$FRONTEND_REGION" &> /dev/null; then
         FRONTEND_URL=$(gcloud run services describe speakright-frontend \
-            --region "$REGION" \
+            --region "$FRONTEND_REGION" \
             --format='value(status.url)')
     else
         FRONTEND_URL="<FRONTEND_URL_NOT_AVAILABLE>"
@@ -235,5 +241,5 @@ if [ "$DEPLOY_BACKEND" = true ]; then
 fi
 
 if [ "$DEPLOY_UI" = true ]; then
-    echo -e "4. Check frontend logs: gcloud run logs tail speakright-frontend --region=$REGION"
+    echo -e "4. Check frontend logs: gcloud run logs tail speakright-frontend --region=$FRONTEND_REGION"
 fi
