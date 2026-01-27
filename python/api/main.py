@@ -590,15 +590,29 @@ async def get_detailed_metrics(
         print(f"Generating structured metrics on-demand for {coaching_id}")
         from services.metrics_generator import generate_structured_metrics
 
-        analysis_path = metadata.get("analysis", {}).get("analysis")
-        coaching_feedback_path = metadata.get("analysis", {}).get("coaching_feedback")
+        analysis_path_or_url = metadata.get("analysis", {}).get("analysis")
+        coaching_feedback_path_or_url = metadata.get("analysis", {}).get("coaching_feedback")
 
-        if not analysis_path:
+        if not analysis_path_or_url:
             raise HTTPException(status_code=404, detail="Analysis not available for this session")
+
+        # Ensure files are local (download from S3 if needed)
+        analysis_path = storage_manager.ensure_local_file(analysis_path_or_url, coaching_id, "analysis")
+
+        coaching_feedback_path = None
+        if coaching_feedback_path_or_url:
+            try:
+                coaching_feedback_path = storage_manager.ensure_local_file(
+                    coaching_feedback_path_or_url, coaching_id, "coaching_feedback"
+                )
+                print(f"✓ Coaching feedback available for AI insights generation")
+            except Exception as e:
+                print(f"⚠ Could not load coaching feedback: {e}")
+                coaching_feedback_path = None
 
         structured_metrics = generate_structured_metrics(
             coaching_analysis_path=analysis_path,
-            coaching_feedback_path=coaching_feedback_path if coaching_feedback_path and os.path.exists(coaching_feedback_path) else None
+            coaching_feedback_path=coaching_feedback_path
         )
 
         # Save and upload
