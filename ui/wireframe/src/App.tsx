@@ -65,6 +65,7 @@ export default function SpeechCoachApp() {
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [practiceThemes, setPracticeThemes] = useState<PracticeTheme[]>([]);
   const [isLoadingThemes, setIsLoadingThemes] = useState(false);
+  const [showVisualCues, setShowVisualCues] = useState(false);
 
   // Sessions state
   const [sessions, setSessions] = useState<SessionItem[]>([]);
@@ -807,18 +808,33 @@ export default function SpeechCoachApp() {
 
             {generatedPrompt && !isGeneratingPrompt && (
               <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg p-6 border border-blue-200">
-                <div className="flex items-start gap-3 mb-3">
-                  <MessageSquare className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="font-semibold text-gray-900 mb-1">
-                      {practiceThemes.find(t => t.id === selectedTheme)?.name || 'Dialogue'}
-                    </h4>
-                    <p className="text-xs text-gray-500">Recite this dialogue naturally. <strong className="text-blue-600">Bold words</strong> need extra emphasis.</p>
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-start gap-3">
+                    <MessageSquare className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-semibold text-gray-900 mb-1">
+                        {practiceThemes.find(t => t.id === selectedTheme)?.name || 'Dialogue'}
+                      </h4>
+                      <p className="text-xs text-gray-500">
+                        Recite this dialogue naturally.
+                        {showVisualCues && <> <strong className="text-blue-600">Bold words</strong> need extra emphasis.</>}
+                      </p>
+                    </div>
                   </div>
+                  <button
+                    onClick={() => setShowVisualCues(!showVisualCues)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors flex-shrink-0 ${
+                      showVisualCues
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    {showVisualCues ? 'Hide Cues' : 'Show Cues'}
+                  </button>
                 </div>
                 <div className="bg-white rounded-lg p-4 text-sm text-gray-700 leading-relaxed max-h-48 overflow-y-auto whitespace-pre-line">
                   {renderDialogueWithEmphasis(generatedPrompt).parts.map((part, idx) => (
-                    part.bold ? (
+                    part.bold && showVisualCues ? (
                       <strong key={idx} className="text-blue-700 font-bold">{part.text}</strong>
                     ) : (
                       <span key={idx}>{part.text}</span>
@@ -876,15 +892,27 @@ export default function SpeechCoachApp() {
             {/* Show the dialogue while recording for reference */}
             {generatedPrompt && (
               <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg p-4 border border-blue-200 mb-4 text-left">
-                <div className="flex items-start gap-2 mb-2">
-                  <MessageSquare className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                  <span className="text-xs font-semibold text-blue-800">
-                    Your Dialogue - <strong className="text-blue-600">Bold words</strong> need emphasis:
-                  </span>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex items-start gap-2">
+                    <MessageSquare className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <span className="text-xs font-semibold text-blue-800">
+                      Your Dialogue{showVisualCues && <> - <strong className="text-blue-600">Bold words</strong> need emphasis</>}:
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowVisualCues(!showVisualCues)}
+                    className={`px-2 py-1 text-xs font-medium rounded transition-colors flex-shrink-0 ${
+                      showVisualCues
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    {showVisualCues ? 'Hide' : 'Show'}
+                  </button>
                 </div>
                 <div className="bg-white rounded p-3 text-sm text-gray-700 leading-relaxed max-h-32 overflow-y-auto whitespace-pre-line">
                   {renderDialogueWithEmphasis(generatedPrompt).parts.map((part, idx) => (
-                    part.bold ? (
+                    part.bold && showVisualCues ? (
                       <strong key={idx} className="text-blue-700 font-bold">{part.text}</strong>
                     ) : (
                       <span key={idx}>{part.text}</span>
