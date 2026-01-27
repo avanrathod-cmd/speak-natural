@@ -62,28 +62,31 @@ create_secret() {
 }
 
 # Create all secrets
-echo -e "${BLUE}[1/8] AWS Access Key${NC}"
+echo -e "${BLUE}[1/9] AWS Access Key${NC}"
 create_secret "aws-access-key" "$AWS_ACCESS_KEY_ID"
 
-echo -e "\n${BLUE}[2/8] AWS Secret Key${NC}"
+echo -e "\n${BLUE}[2/9] AWS Secret Key${NC}"
 create_secret "aws-secret-key" "$AWS_SECRET_ACCESS_KEY"
 
-echo -e "\n${BLUE}[3/8] Anthropic API Key${NC}"
+echo -e "\n${BLUE}[3/9] Anthropic API Key${NC}"
 create_secret "anthropic-api-key" "$ANTHROPIC_API_KEY"
 
-echo -e "\n${BLUE}[4/8] OpenAI API Key${NC}"
+echo -e "\n${BLUE}[4/9] OpenAI API Key${NC}"
 create_secret "openai-api-key" "$OPENAI_API_KEY"
 
-echo -e "\n${BLUE}[5/8] ElevenLabs API Key${NC}"
+echo -e "\n${BLUE}[5/9] ElevenLabs API Key${NC}"
 create_secret "elevenlabs-api-key" "$ELEVENLABS_API_KEY"
 
-echo -e "\n${BLUE}[6/8] Supabase URL${NC}"
+echo -e "\n${BLUE}[6/9] ElevenLabs Voice ID${NC}"
+create_secret "elevenlabs-voice-id" "$ELEVENLABS_VOICE_ID"
+
+echo -e "\n${BLUE}[7/9] Supabase URL${NC}"
 create_secret "supabase-url" "$SUPABASE_URL"
 
-echo -e "\n${BLUE}[7/8] Supabase Anon Key${NC}"
+echo -e "\n${BLUE}[8/9] Supabase Anon Key${NC}"
 create_secret "supabase-anon-key" "$SUPABASE_ANON_KEY"
 
-echo -e "\n${BLUE}[8/8] Supabase JWT Secret${NC}"
+echo -e "\n${BLUE}[9/9] Supabase JWT Secret${NC}"
 create_secret "supabase-jwt-secret" "$SUPABASE_JWT_SECRET"
 
 # Summary

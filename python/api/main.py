@@ -49,6 +49,7 @@ from api.auth import get_current_user, get_current_user_optional
 from services.waveform_generator import generate_waveform_data
 from services.segment_generator import generate_segments_with_audio, generate_segments_with_audio_intelligent
 from utils.aws_utils import s3_client
+from utils.s3_paths import get_path_manager
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -453,8 +454,9 @@ async def get_coaching_metrics(
 
     # Try to load structured metrics first (new format)
     try:
+        pm = get_path_manager()
         session_dir = storage_manager.get_session_directory(coaching_id)
-        structured_metrics_path = os.path.join(session_dir, "output", "metrics", "structured_metrics.json")
+        structured_metrics_path = pm.get_local_metrics_path(coaching_id, base_dir=storage_manager.base_dir)
 
         if os.path.exists(structured_metrics_path):
             with open(structured_metrics_path, 'r') as f:
@@ -550,8 +552,9 @@ async def get_detailed_metrics(
         raise HTTPException(status_code=400, detail="Coaching analysis not yet completed")
 
     try:
+        pm = get_path_manager()
         session_dir = storage_manager.get_session_directory(coaching_id)
-        structured_metrics_path = os.path.join(session_dir, "output", "metrics", "structured_metrics.json")
+        structured_metrics_path = pm.get_local_metrics_path(coaching_id, base_dir=storage_manager.base_dir)
 
         # Check if cached locally
         if os.path.exists(structured_metrics_path):
@@ -587,15 +590,29 @@ async def get_detailed_metrics(
         print(f"Generating structured metrics on-demand for {coaching_id}")
         from services.metrics_generator import generate_structured_metrics
 
-        analysis_path = metadata.get("analysis", {}).get("analysis")
-        coaching_feedback_path = metadata.get("analysis", {}).get("coaching_feedback")
+        analysis_path_or_url = metadata.get("analysis", {}).get("analysis")
+        coaching_feedback_path_or_url = metadata.get("analysis", {}).get("coaching_feedback")
 
-        if not analysis_path:
+        if not analysis_path_or_url:
             raise HTTPException(status_code=404, detail="Analysis not available for this session")
+
+        # Ensure files are local (download from S3 if needed)
+        analysis_path = storage_manager.ensure_local_file(analysis_path_or_url, coaching_id, "analysis")
+
+        coaching_feedback_path = None
+        if coaching_feedback_path_or_url:
+            try:
+                coaching_feedback_path = storage_manager.ensure_local_file(
+                    coaching_feedback_path_or_url, coaching_id, "coaching_feedback"
+                )
+                print(f"✓ Coaching feedback available for AI insights generation")
+            except Exception as e:
+                print(f"⚠ Could not load coaching feedback: {e}")
+                coaching_feedback_path = None
 
         structured_metrics = generate_structured_metrics(
             coaching_analysis_path=analysis_path,
-            coaching_feedback_path=coaching_feedback_path if coaching_feedback_path and os.path.exists(coaching_feedback_path) else None
+            coaching_feedback_path=coaching_feedback_path
         )
 
         # Save and upload
@@ -808,24 +825,52 @@ async def get_waveform(
         raise HTTPException(status_code=400, detail="Coaching analysis not yet completed")
 
     try:
-        # Check if waveform data already cached
+        # Check if waveform data already cached (local first, then S3)
+        pm = get_path_manager()
         session_dir = storage_manager.get_session_directory(coaching_id)
-        waveform_cache_path = os.path.join(session_dir, "output", "waveform", f"waveform_{samples}.json")
+        waveform_cache_path = pm.get_local_waveform_cache_path(coaching_id, samples, base_dir=storage_manager.base_dir)
 
+        # 1. Check local cache (fastest)
         if os.path.exists(waveform_cache_path):
-            # Return cached data
+            print(f"✓ Using cached waveform from local: {waveform_cache_path}")
             with open(waveform_cache_path, 'r') as f:
                 return json.load(f)
 
-        # Generate waveform data
-        audio_path = metadata.get("input", {}).get("wav_audio_file")
-        analysis_path = metadata.get("analysis", {}).get("analysis")
+        # 2. Check S3 cache (Cloud Run compatible)
+        try:
+            s3_cache_key = pm.get_waveform_cache_key(coaching_id, samples)
+            print(f"Checking S3 cache: {s3_cache_key}")
+            response = s3_client.get_object(
+                Bucket=audio_processor.bucket_name,
+                Key=s3_cache_key
+            )
+            cached_data = json.loads(response['Body'].read())
 
-        if not audio_path or not os.path.exists(audio_path):
+            # Cache locally for subsequent requests
+            os.makedirs(os.path.dirname(waveform_cache_path), exist_ok=True)
+            with open(waveform_cache_path, 'w') as f:
+                json.dump(cached_data, f)
+
+            print(f"✓ Using cached waveform from S3 (downloaded to local)")
+            return cached_data
+        except s3_client.exceptions.NoSuchKey:
+            print(f"No S3 cache found, will generate waveform")
+        except Exception as s3_error:
+            print(f"S3 cache check failed: {s3_error}, will generate waveform")
+
+        # 3. Generate waveform data
+        audio_path_or_url = metadata.get("input", {}).get("wav_audio_file")
+        analysis_path_or_url = metadata.get("analysis", {}).get("analysis")
+
+        if not audio_path_or_url:
             raise HTTPException(status_code=404, detail="Audio file not found")
 
-        if not analysis_path or not os.path.exists(analysis_path):
+        if not analysis_path_or_url:
             raise HTTPException(status_code=404, detail="Analysis file not found. Session may be incomplete.")
+
+        # Ensure files are local (download from S3 if needed - Cloud Run compatible)
+        audio_path = storage_manager.ensure_local_file(audio_path_or_url, coaching_id, "audio")
+        analysis_path = storage_manager.ensure_local_file(analysis_path_or_url, coaching_id, "analysis")
 
         waveform_data = generate_waveform_data(
             audio_path=audio_path,
@@ -833,15 +878,28 @@ async def get_waveform(
             target_samples=samples
         )
 
-        # Cache the result
-        os.makedirs(os.path.dirname(waveform_cache_path), exist_ok=True)
-        with open(waveform_cache_path, 'w') as f:
-            json.dump(waveform_data, f)
-
-        return {
+        # Prepare result
+        result = {
             "coaching_id": coaching_id,
             **waveform_data
         }
+
+        # Cache locally
+        os.makedirs(os.path.dirname(waveform_cache_path), exist_ok=True)
+        with open(waveform_cache_path, 'w') as f:
+            json.dump(result, f)
+
+        # Upload cache to S3 for Cloud Run persistence
+        s3_cache_key = pm.get_waveform_cache_key(coaching_id, samples)
+        s3_client.put_object(
+            Bucket=audio_processor.bucket_name,
+            Key=s3_cache_key,
+            Body=json.dumps(result),
+            ContentType='application/json'
+        )
+        print(f"✓ Cached waveform to S3: {s3_cache_key}")
+
+        return result
 
     except HTTPException:
         raise
@@ -914,12 +972,14 @@ async def get_transcript_with_segments(
         raise HTTPException(status_code=400, detail="Coaching analysis not yet completed")
 
     try:
-        # Check if segments are already generated
+        # Check if segments are already generated (local first, then S3)
+        pm = get_path_manager()
         session_dir = storage_manager.get_session_directory(coaching_id)
-        segments_cache_path = os.path.join(session_dir, "output", "segments", f"segments_{max_segments}.json")
+        segments_cache_path = pm.get_local_segments_cache_path(coaching_id, max_segments, base_dir=storage_manager.base_dir)
 
+        # 1. Check local cache (fastest)
         if os.path.exists(segments_cache_path):
-            # Return cached segments
+            print(f"✓ Using cached segments from local: {segments_cache_path}")
             with open(segments_cache_path, 'r') as f:
                 cached_data = json.load(f)
                 return TranscriptWithSegmentsResponse(
@@ -928,25 +988,60 @@ async def get_transcript_with_segments(
                     segment_count=len(cached_data["segments"])
                 )
 
-        # Generate segments
-        audio_path = metadata.get("input", {}).get("wav_audio_file")
-        analysis_path = metadata.get("analysis", {}).get("analysis")
-        coaching_feedback_path = metadata.get("analysis", {}).get("coaching_feedback")
+        # 2. Check S3 cache (Cloud Run compatible)
+        try:
+            s3_cache_key = pm.get_segments_cache_key(coaching_id, max_segments)
+            print(f"Checking S3 cache: {s3_cache_key}")
+            response = s3_client.get_object(
+                Bucket=audio_processor.bucket_name,
+                Key=s3_cache_key
+            )
+            cached_data = json.loads(response['Body'].read())
 
-        if not audio_path or not os.path.exists(audio_path):
+            # Cache locally for subsequent requests
+            os.makedirs(os.path.dirname(segments_cache_path), exist_ok=True)
+            with open(segments_cache_path, 'w') as f:
+                json.dump(cached_data, f)
+
+            print(f"✓ Using cached segments from S3 (downloaded to local)")
+            return TranscriptWithSegmentsResponse(
+                coaching_id=coaching_id,
+                segments=cached_data["segments"],
+                segment_count=len(cached_data["segments"])
+            )
+        except s3_client.exceptions.NoSuchKey:
+            print(f"No S3 cache found, will generate segments")
+        except Exception as s3_error:
+            print(f"S3 cache check failed: {s3_error}, will generate segments")
+
+        # Generate segments
+        audio_path_or_url = metadata.get("input", {}).get("wav_audio_file")
+        analysis_path_or_url = metadata.get("analysis", {}).get("analysis")
+        coaching_feedback_path_or_url = metadata.get("analysis", {}).get("coaching_feedback")
+
+        if not audio_path_or_url:
             raise HTTPException(status_code=404, detail="Audio file not found")
 
-        if not analysis_path or not os.path.exists(analysis_path):
+        if not analysis_path_or_url:
             raise HTTPException(status_code=404, detail="Analysis file not found. Session may be incomplete.")
 
-        segments_output_dir = os.path.join(session_dir, "output", "segments")
+        # Ensure files are local (download from S3 if needed - Cloud Run compatible)
+        audio_path = storage_manager.ensure_local_file(audio_path_or_url, coaching_id, "audio")
+        analysis_path = storage_manager.ensure_local_file(analysis_path_or_url, coaching_id, "analysis")
+
+        segments_output_dir = pm.get_local_segments_dir(coaching_id, base_dir=storage_manager.base_dir)
         os.makedirs(segments_output_dir, exist_ok=True)
 
         # Get voice mapping from metadata (if voice cloning was performed)
         voice_mapping = metadata.get("voice_mapping")
 
         # Generate segments with audio using intelligent selection
-        if coaching_feedback_path and os.path.exists(coaching_feedback_path):
+        if coaching_feedback_path_or_url:
+            # Ensure coaching feedback is local
+            coaching_feedback_path = storage_manager.ensure_local_file(
+                coaching_feedback_path_or_url, coaching_id, "coaching_feedback"
+            )
+
             # Use Claude-powered intelligent selection
             with open(coaching_feedback_path, 'r') as f:
                 coaching_feedback = f.read()
@@ -971,12 +1066,14 @@ async def get_transcript_with_segments(
             )
 
         # Upload segment audio files to S3 and generate URLs
+        pm = get_path_manager()
+
         for segment in segments:
             segment_id = segment['segment_id']
 
             # Upload original audio
             if segment.get('original_audio_path') and os.path.exists(segment['original_audio_path']):
-                s3_key_original = f"{coaching_id}/segments/original/segment_{segment_id}.wav"
+                s3_key_original = pm.get_segment_original_key(coaching_id, segment_id)
                 with open(segment['original_audio_path'], 'rb') as f:
                     s3_client.put_object(
                         Bucket=audio_processor.bucket_name,
@@ -995,7 +1092,7 @@ async def get_transcript_with_segments(
 
             # Upload improved audio
             if segment.get('improved_audio_path') and os.path.exists(segment['improved_audio_path']):
-                s3_key_improved = f"{coaching_id}/segments/improved/segment_{segment_id}.wav"
+                s3_key_improved = pm.get_segment_improved_key(coaching_id, segment_id)
                 with open(segment['improved_audio_path'], 'rb') as f:
                     s3_client.put_object(
                         Bucket=audio_processor.bucket_name,
@@ -1015,7 +1112,7 @@ async def get_transcript_with_segments(
             # Add duration field
             segment['duration'] = round(segment['end_time'] - segment['start_time'], 2)
 
-        # Cache the segments
+        # Cache the segments locally
         cache_data = {
             "coaching_id": coaching_id,
             "segments": segments,
@@ -1023,6 +1120,16 @@ async def get_transcript_with_segments(
         }
         with open(segments_cache_path, 'w') as f:
             json.dump(cache_data, f)
+
+        # Upload cache to S3 for Cloud Run persistence
+        s3_cache_key = pm.get_segments_cache_key(coaching_id, max_segments)
+        s3_client.put_object(
+            Bucket=audio_processor.bucket_name,
+            Key=s3_cache_key,
+            Body=json.dumps(cache_data),
+            ContentType='application/json'
+        )
+        print(f"✓ Cached segments to S3: {s3_cache_key}")
 
         return TranscriptWithSegmentsResponse(
             coaching_id=coaching_id,

@@ -12,9 +12,7 @@ import {
   PracticeTheme
 } from './types';
 import {
-  mockTranscriptSegments,
   mockProgressData,
-  mockWaveformSegments,
   convertTranscriptSegmentsToUI,
   convertWaveformToUI,
   renderDialogueWithEmphasis,
@@ -67,6 +65,7 @@ export default function SpeechCoachApp() {
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [practiceThemes, setPracticeThemes] = useState<PracticeTheme[]>([]);
   const [isLoadingThemes, setIsLoadingThemes] = useState(false);
+  const [showVisualCues, setShowVisualCues] = useState(false);
 
   // Sessions state
   const [sessions, setSessions] = useState<SessionItem[]>([]);
@@ -126,8 +125,8 @@ export default function SpeechCoachApp() {
       setTranscriptSegments(uiSegments);
     } catch (error) {
       console.error('Error loading transcript:', error);
-      // Fallback to mock data on error
-      setTranscriptSegments(mockTranscriptSegments);
+      // Don't set mock data - let the UI show an error state
+      setTranscriptSegments([]);
     } finally {
       setIsLoadingTranscript(false);
     }
@@ -145,7 +144,7 @@ export default function SpeechCoachApp() {
       setWaveformQualitySegments(qualitySegments);
     } catch (error) {
       console.error('Error loading waveform:', error);
-      // Fallback to mock on error
+      // Don't set mock data - let the UI show an error state
       setWaveformPeaks([]);
       setWaveformQualitySegments([]);
     } finally {
@@ -178,13 +177,22 @@ export default function SpeechCoachApp() {
     setActiveView('analysis');
   }, [getAccessToken, loadTranscript, loadWaveform]);
 
-  // Poll for processing status
+  // Poll for processing status (with proper request throttling)
   useEffect(() => {
     if (!currentCoachingId || processingStatus === 'completed' || processingStatus === 'failed') {
       return;
     }
 
+    let isPolling = false;
+    let timeoutId: NodeJS.Timeout;
+
     const pollStatus = async () => {
+      // Skip if already polling
+      if (isPolling) {
+        return;
+      }
+
+      isPolling = true;
       try {
         const token = await getAccessToken();
         if (!token) return;
@@ -195,14 +203,27 @@ export default function SpeechCoachApp() {
         if (status.status === 'completed') {
           // Load metrics once processing is complete
           loadMetrics(currentCoachingId);
+        } else {
+          // Schedule next poll only after current one completes
+          timeoutId = setTimeout(pollStatus, 3000);
         }
       } catch (error) {
         console.error('Error polling status:', error);
+        // Retry after error
+        timeoutId = setTimeout(pollStatus, 3000);
+      } finally {
+        isPolling = false;
       }
     };
 
-    const interval = setInterval(pollStatus, 3000); // Poll every 3 seconds
-    return () => clearInterval(interval);
+    // Start polling immediately
+    pollStatus();
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, [currentCoachingId, processingStatus, getAccessToken, loadMetrics]);
 
   const handleFileUpload = async (file: File) => {
@@ -612,17 +633,14 @@ export default function SpeechCoachApp() {
       }
 
       if (waveformPeaks.length === 0) {
-        // Fallback to mock visualization
+        // Show message when no waveform data available
         return (
-          <>
-            {mockWaveformSegments.map((seg, idx) => (
-              <div
-                key={idx}
-                className={`${seg.color} rounded-t cursor-pointer hover:opacity-80 transition-opacity`}
-                style={{ width: seg.width, height: seg.height }}
-              />
-            ))}
-          </>
+          <div className="flex items-center justify-center h-full text-gray-500">
+            <div className="text-center">
+              <div className="text-sm">Waveform data not available</div>
+              <div className="text-xs mt-1">Audio is still being processed</div>
+            </div>
+          </div>
         );
       }
 
@@ -790,18 +808,33 @@ export default function SpeechCoachApp() {
 
             {generatedPrompt && !isGeneratingPrompt && (
               <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg p-6 border border-blue-200">
-                <div className="flex items-start gap-3 mb-3">
-                  <MessageSquare className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="font-semibold text-gray-900 mb-1">
-                      {practiceThemes.find(t => t.id === selectedTheme)?.name || 'Dialogue'}
-                    </h4>
-                    <p className="text-xs text-gray-500">Recite this dialogue naturally. <strong className="text-blue-600">Bold words</strong> need extra emphasis.</p>
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-start gap-3">
+                    <MessageSquare className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-semibold text-gray-900 mb-1">
+                        {practiceThemes.find(t => t.id === selectedTheme)?.name || 'Dialogue'}
+                      </h4>
+                      <p className="text-xs text-gray-500">
+                        Recite this dialogue naturally.
+                        {showVisualCues && <> <strong className="text-blue-600">Bold words</strong> need extra emphasis.</>}
+                      </p>
+                    </div>
                   </div>
+                  <button
+                    onClick={() => setShowVisualCues(!showVisualCues)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors flex-shrink-0 ${
+                      showVisualCues
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    {showVisualCues ? 'Hide Cues' : 'Show Cues'}
+                  </button>
                 </div>
                 <div className="bg-white rounded-lg p-4 text-sm text-gray-700 leading-relaxed max-h-48 overflow-y-auto whitespace-pre-line">
                   {renderDialogueWithEmphasis(generatedPrompt).parts.map((part, idx) => (
-                    part.bold ? (
+                    part.bold && showVisualCues ? (
                       <strong key={idx} className="text-blue-700 font-bold">{part.text}</strong>
                     ) : (
                       <span key={idx}>{part.text}</span>
@@ -859,15 +892,27 @@ export default function SpeechCoachApp() {
             {/* Show the dialogue while recording for reference */}
             {generatedPrompt && (
               <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg p-4 border border-blue-200 mb-4 text-left">
-                <div className="flex items-start gap-2 mb-2">
-                  <MessageSquare className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                  <span className="text-xs font-semibold text-blue-800">
-                    Your Dialogue - <strong className="text-blue-600">Bold words</strong> need emphasis:
-                  </span>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex items-start gap-2">
+                    <MessageSquare className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <span className="text-xs font-semibold text-blue-800">
+                      Your Dialogue{showVisualCues && <> - <strong className="text-blue-600">Bold words</strong> need emphasis</>}:
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowVisualCues(!showVisualCues)}
+                    className={`px-2 py-1 text-xs font-medium rounded transition-colors flex-shrink-0 ${
+                      showVisualCues
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    {showVisualCues ? 'Hide' : 'Show'}
+                  </button>
                 </div>
                 <div className="bg-white rounded p-3 text-sm text-gray-700 leading-relaxed max-h-32 overflow-y-auto whitespace-pre-line">
                   {renderDialogueWithEmphasis(generatedPrompt).parts.map((part, idx) => (
-                    part.bold ? (
+                    part.bold && showVisualCues ? (
                       <strong key={idx} className="text-blue-700 font-bold">{part.text}</strong>
                     ) : (
                       <span key={idx}>{part.text}</span>
@@ -1051,10 +1096,17 @@ export default function SpeechCoachApp() {
                     <SegmentPlayer key={segment.id} segment={segment} />
                   ))}
                 </div>
+              ) : processingStatus === 'processing' || processingStatus === 'pending' ? (
+                <div className="p-8 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                  <div className="text-sm text-gray-600 mb-1">Processing your audio...</div>
+                  <div className="text-xs text-gray-500">This may take a few minutes depending on audio length</div>
+                </div>
               ) : (
                 <div className="p-8 text-center text-gray-500">
                   <MessageSquare className="w-12 h-12 mx-auto mb-2 opacity-50" />
                   <div>No transcript segments available</div>
+                  <div className="text-xs mt-1">Try uploading a new audio file</div>
                 </div>
               )}
 
