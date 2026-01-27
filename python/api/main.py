@@ -1180,7 +1180,8 @@ if __name__ == "__main__":
         storage_manager.base_dir = args.output_dir
         os.makedirs(args.output_dir, exist_ok=True)
         print(f"Using output directory: {args.output_dir}")
-
+    print(f"Starting Speak Natural Coaching API server on "
+        f"{args.host}:{args.port} (reload={args.reload})")
     uvicorn.run(
         "api.main:app",
         host=args.host,

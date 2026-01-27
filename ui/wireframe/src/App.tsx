@@ -1333,7 +1333,7 @@ export default function SpeechCoachApp() {
       <div className="max-w-7xl mx-auto">
         <div className="mb-8 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Speech Coach AI</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Speak Natural AI</h1>
             <p className="text-gray-600">Master American English communication for sales success</p>
           </div>
           <div className="flex items-center gap-4">
