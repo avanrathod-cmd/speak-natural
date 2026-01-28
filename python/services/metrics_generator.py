@@ -14,6 +14,7 @@ from pathlib import Path
 def generate_structured_metrics(
     coaching_analysis_path: str,
     coaching_feedback_path: Optional[str] = None,
+    coaching_insights_path: Optional[str] = None,
     api_key: Optional[str] = None
 ) -> Dict:
     """
@@ -22,6 +23,7 @@ def generate_structured_metrics(
     Args:
         coaching_analysis_path: Path to coaching_analysis.json
         coaching_feedback_path: Optional path to coaching_feedback.md
+        coaching_insights_path: Optional path to pre-generated insights.json
         api_key: Optional Anthropic API key (uses env if not provided)
 
     Returns:
@@ -58,12 +60,11 @@ def generate_structured_metrics(
     pitch_std = acoustic_features['parselmouth']['pitch_std_hz']
     intensity_mean = acoustic_features['parselmouth']['intensity_mean_db']
     intensity_std = acoustic_features['parselmouth']['intensity_std_db']
-    hnr_mean = acoustic_features['parselmouth']['harmonics_to_noise_ratio_mean_db']
 
     # Calculate ratings using tight definitions
     metrics = {
         "overall_score": calculate_overall_score(
-            pace_wpm, filler_ratio, pitch_range_hz, intensity_std, hnr_mean
+            pace_wpm, filler_ratio, pitch_range_hz, intensity_std
         ),
         "pace": {
             "words_per_minute": round(pace_wpm, 1),
@@ -94,16 +95,20 @@ def generate_structured_metrics(
             "ratio": round(filler_ratio, 3),
             "rating": rate_filler_words(filler_ratio),
             "definition": "Good: <2%; Moderate: 2-5%; Needs improvement: >5%"
-        },
-        "voice_quality": {
-            "harmonics_to_noise_ratio_db": round(hnr_mean, 1),
-            "rating": rate_voice_quality(hnr_mean),
-            "definition": "Good: >15 dB (clear voice); Moderate: 10-15 dB; Poor: <10 dB (breathy/hoarse)"
         }
     }
 
     # If AI feedback is available and API key provided, enhance with AI analysis
-    if coaching_feedback_path and os.path.exists(coaching_feedback_path):
+    # Load pre-generated insights if available (preferred)
+    if coaching_insights_path and os.path.exists(coaching_insights_path):
+        try:
+            with open(coaching_insights_path, 'r') as f:
+                metrics["ai_insights"] = json.load(f)
+        except Exception as e:
+            print(f"Warning: Could not load pre-generated insights: {e}")
+            metrics["ai_insights"] = None
+    # Fallback: generate insights via LLM call (deprecated path)
+    elif coaching_feedback_path and os.path.exists(coaching_feedback_path):
         api_key = api_key or os.getenv('ANTHROPIC_API_KEY')
         if api_key:
             try:
@@ -128,70 +133,58 @@ def calculate_overall_score(
     pace_wpm: float,
     filler_ratio: float,
     pitch_range_hz: float,
-    intensity_std: float,
-    hnr_mean: float
+    intensity_std: float
 ) -> float:
     """
     Calculate overall speaking score (0-10) based on multiple factors.
 
     Scoring rubric:
-    - Pace: 2 points (ideal 140-180 WPM)
-    - Filler words: 2 points (<2% is excellent)
-    - Pitch variation: 2 points (>100 Hz range)
-    - Energy variation: 2 points (>5 dB std)
-    - Voice quality: 2 points (>15 dB HNR)
+    - Pace: 2.5 points (ideal 140-180 WPM)
+    - Filler words: 2.5 points (<2% is excellent)
+    - Pitch variation: 2.5 points (>100 Hz range)
+    - Energy variation: 2.5 points (>5 dB std)
     """
     score = 0.0
 
-    # Pace scoring (0-2 points)
+    # Pace scoring (0-2.5 points)
     if 140 <= pace_wpm <= 180:
-        score += 2.0
+        score += 2.5
     elif 120 <= pace_wpm < 140 or 180 < pace_wpm <= 200:
-        score += 1.5
+        score += 1.875
     elif 100 <= pace_wpm < 120 or 200 < pace_wpm <= 220:
-        score += 1.0
+        score += 1.25
     else:
-        score += 0.5
+        score += 0.625
 
-    # Filler words scoring (0-2 points)
+    # Filler words scoring (0-2.5 points)
     if filler_ratio < 0.02:
-        score += 2.0
+        score += 2.5
     elif filler_ratio < 0.05:
-        score += 1.5
+        score += 1.875
     elif filler_ratio < 0.08:
-        score += 1.0
+        score += 1.25
     else:
-        score += 0.5
+        score += 0.625
 
-    # Pitch variation scoring (0-2 points)
+    # Pitch variation scoring (0-2.5 points)
     if pitch_range_hz > 100:
-        score += 2.0
+        score += 2.5
     elif pitch_range_hz > 75:
-        score += 1.5
+        score += 1.875
     elif pitch_range_hz > 50:
-        score += 1.0
+        score += 1.25
     else:
-        score += 0.5
+        score += 0.625
 
-    # Energy variation scoring (0-2 points)
+    # Energy variation scoring (0-2.5 points)
     if intensity_std > 5:
-        score += 2.0
+        score += 2.5
     elif intensity_std > 3:
-        score += 1.5
+        score += 1.875
     elif intensity_std > 2:
-        score += 1.0
+        score += 1.25
     else:
-        score += 0.5
-
-    # Voice quality scoring (0-2 points)
-    if hnr_mean > 15:
-        score += 2.0
-    elif hnr_mean > 12:
-        score += 1.5
-    elif hnr_mean > 10:
-        score += 1.0
-    else:
-        score += 0.5
+        score += 0.625
 
     return round(score, 1)
 
@@ -265,18 +258,6 @@ def rate_filler_words(filler_ratio: float) -> str:
         return "moderate"
     else:
         return "needs improvement"
-
-
-def rate_voice_quality(hnr_mean: float) -> str:
-    """Rate voice quality based on harmonics-to-noise ratio."""
-    if hnr_mean > 15:
-        return "excellent (clear)"
-    elif hnr_mean > 12:
-        return "good"
-    elif hnr_mean > 10:
-        return "moderate"
-    else:
-        return "needs improvement (breathy/hoarse)"
 
 
 def extract_ai_metrics(
