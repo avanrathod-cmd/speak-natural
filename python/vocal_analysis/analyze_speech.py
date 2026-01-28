@@ -1,6 +1,6 @@
 """
 Speech analysis module for coaching - extracts acoustic features from audio.
-Uses Parselmouth (Praat) for phonetic analysis and librosa for general audio analysis.
+Uses Parselmouth (Praat) for pitch and intensity analysis.
 """
 
 import json
@@ -11,7 +11,7 @@ from pathlib import Path
 def analyze_audio_with_parselmouth(audio_path):
     """
     Extract acoustic features using Parselmouth (Praat).
-    Returns pitch, intensity, formants, and voice quality metrics.
+    Returns pitch and intensity metrics needed for coaching analysis.
     """
     try:
         import parselmouth
@@ -35,9 +35,6 @@ def analyze_audio_with_parselmouth(audio_path):
     intensity_values = intensity.values[0]
     intensity_values = intensity_values[intensity_values > 0]
 
-    # Extract formants (vowel quality)
-    formant = call(sound, "To Formant (burg)", 0.0, 5, 5500, 0.025, 50)
-
     # Get time-series data for alignment with transcript
     pitch_times = pitch.xs()
     intensity_times = intensity.xs()
@@ -56,17 +53,6 @@ def analyze_audio_with_parselmouth(audio_path):
         if db and not np.isnan(db):
             intensity_contour.append({"time": float(time), "intensity_db": float(db)})
 
-    # Calculate voice quality metrics
-    harmonicity = call(sound, "To Harmonicity (cc)", 0.01, 75, 0.1, 1.0)
-    hnr_values = harmonicity.values[0]
-    hnr_values = hnr_values[~np.isnan(hnr_values)]
-
-    # Get formant values at midpoint
-    mid_time = sound.duration / 2
-    f1 = call(formant, "Get value at time", 1, mid_time, "Hertz", "Linear")
-    f2 = call(formant, "Get value at time", 2, mid_time, "Hertz", "Linear")
-    f3 = call(formant, "Get value at time", 3, mid_time, "Hertz", "Linear")
-
     return {
         "pitch_mean_hz": float(np.mean(pitch_values)) if len(pitch_values) > 0 else 0,
         "pitch_std_hz": float(np.std(pitch_values)) if len(pitch_values) > 0 else 0,
@@ -80,45 +66,7 @@ def analyze_audio_with_parselmouth(audio_path):
         "intensity_range_db": float(np.max(intensity_values) - np.min(intensity_values)) if len(intensity_values) > 0 else 0,
         "intensity_contour": intensity_contour,
 
-        "harmonics_to_noise_ratio_mean_db": float(np.mean(hnr_values)) if len(hnr_values) > 0 else 0,
-
-        "formant_f1_hz": float(f1) if f1 and not np.isnan(f1) else 0,
-        "formant_f2_hz": float(f2) if f2 and not np.isnan(f2) else 0,
-        "formant_f3_hz": float(f3) if f3 and not np.isnan(f3) else 0,
-
         "duration_seconds": float(sound.duration)
-    }
-
-
-def analyze_audio_with_librosa(audio_path):
-    """
-    Extract audio features using librosa for rhythm and tempo analysis.
-    """
-    try:
-        import librosa
-    except ImportError:
-        print("Installing librosa...")
-        import subprocess
-        subprocess.check_call(["pip", "install", "librosa"])
-        import librosa
-
-    y, sr = librosa.load(str(audio_path))
-
-    # Detect speaking rate (tempo)
-    tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
-
-    # RMS energy (volume variation)
-    rms = librosa.feature.rms(y=y)[0]
-
-    # Zero crossing rate (voice quality indicator)
-    zcr = librosa.feature.zero_crossing_rate(y)[0]
-
-    return {
-        "tempo_bpm": float(tempo),
-        "rms_energy_mean": float(np.mean(rms)),
-        "rms_energy_std": float(np.std(rms)),
-        "zero_crossing_rate_mean": float(np.mean(zcr)),
-        "duration_seconds": float(librosa.get_duration(y=y, sr=sr))
     }
 
 
@@ -230,12 +178,8 @@ def analyze_speech_for_coaching(transcript_json_path, audio_path, output_path):
     print(f"Analyzing audio with Parselmouth (Praat)...")
     parselmouth_features = analyze_audio_with_parselmouth(audio_path)
 
-    print(f"Analyzing audio with librosa...")
-    librosa_features = analyze_audio_with_librosa(audio_path)
-
     acoustic_features = {
-        "parselmouth": parselmouth_features,
-        "librosa": librosa_features
+        "parselmouth": parselmouth_features
     }
 
     print(f"Calculating speech metrics...")
@@ -272,7 +216,6 @@ def analyze_speech_for_coaching(transcript_json_path, audio_path, output_path):
     print(f"  - Pauses (>0.5s): {speech_metrics['pause_count']}")
     print(f"  - Pitch range: {acoustic_features['parselmouth']['pitch_range_hz']:.1f} Hz ({speech_metrics['pitch_variation_assessment']})")
     print(f"  - Volume variation: {acoustic_features['parselmouth']['intensity_range_db']:.1f} dB ({speech_metrics['volume_variation_assessment']})")
-    print(f"  - Voice quality (HNR): {acoustic_features['parselmouth']['harmonics_to_noise_ratio_mean_db']:.1f} dB")
 
     return coaching_data
 

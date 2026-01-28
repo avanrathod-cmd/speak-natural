@@ -12,11 +12,20 @@ import os
 import json
 import sys
 import subprocess
+import time
+import logging
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-import tempfile
-import shutil
 from dotenv import load_dotenv
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+sys.stdout.reconfigure(line_buffering=True)
+logger = logging.getLogger("speak-right.processor")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -337,13 +346,14 @@ class AudioProcessorService:
         request_dir = os.path.join(output_base_dir, request_id)
         os.makedirs(request_dir, exist_ok=True)
 
-        print("=" * 80)
-        print(f"PROCESSING REQUEST: {request_id}")
-        print("=" * 80)
+        pipeline_start = time.time()
+        logger.info(f"PROCESSING REQUEST: {request_id}")
 
-        # Ensure audio is in WAV format
-        print("\n[0/6] Validating audio format...")
+        # Step 0: Ensure audio is in WAV format
+        step_start = time.time()
+        logger.info("[0/7] Validating audio format...")
         wav_audio_path, was_converted = ensure_wav_format(audio_file_path)
+        logger.info(f"[0/7] Done in {time.time() - step_start:.1f}s")
 
         audio_filename = Path(wav_audio_path).name
         audio_stem = get_audio_stem(audio_filename)
@@ -354,25 +364,31 @@ class AudioProcessorService:
         s3_transcript_key = pm.get_transcript_key(request_id, stem=audio_stem)
 
         # Step 1: Upload audio to S3
-        print("\n[1/7] Uploading audio to S3...")
+        step_start = time.time()
+        logger.info("[1/7] Uploading audio to S3...")
         s3_audio_uri = self.upload_audio_to_s3(wav_audio_path, s3_audio_key)
+        logger.info(f"[1/7] Done in {time.time() - step_start:.1f}s")
 
         # Step 2: Transcribe audio
-        print("\n[2/7] Transcribing audio...")
+        step_start = time.time()
+        logger.info("[2/7] Transcribing audio...")
         job_name = f"job-{request_id}"
         transcript_data = self.transcribe_audio(s3_audio_uri, job_name)
+        logger.info(f"[2/7] Done in {time.time() - step_start:.1f}s")
 
         # Step 3: Save transcript
-        print("\n[3/7] Saving transcript...")
+        step_start = time.time()
+        logger.info("[3/7] Saving transcript...")
         local_transcript_path = os.path.join(request_dir, "transcript.json")
         self.save_transcript_to_file(transcript_data, local_transcript_path)
-
         s3_transcript_uri = self.upload_file_to_s3(local_transcript_path, s3_transcript_key)
+        logger.info(f"[3/7] Done in {time.time() - step_start:.1f}s")
 
         # Step 4: Clone speaker voices
+        step_start = time.time()
         voice_mapping = None
         if should_clone_voices():
-            print("\n[4/7] Cloning speaker voices...")
+            logger.info("[4/7] Cloning speaker voices...")
             try:
                 voice_mapping = self._clone_voices_from_transcript(
                     audio_path=wav_audio_path,
@@ -380,16 +396,16 @@ class AudioProcessorService:
                     output_dir=os.path.join(request_dir, "voice_samples")
                 )
                 if voice_mapping:
-                    print(f"✓ Cloned {len(voice_mapping)} voice(s): {list(voice_mapping.keys())}")
+                    logger.info(f"[4/7] Cloned {len(voice_mapping)} voice(s)")
             except Exception as e:
-                print(f"⚠ Warning: Voice cloning failed: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.warning(f"[4/7] Voice cloning failed: {e}")
         else:
-            print("\n[4/7] Skipping voice cloning (ELEVENLABS_VOICE_ID is set)")
+            logger.info("[4/7] Skipping voice cloning")
+        logger.info(f"[4/7] Done in {time.time() - step_start:.1f}s")
 
-        # Step 5: Run vocal analysis
-        print("\n[5/7] Running vocal analysis and coaching...")
+        # Step 5: Run vocal analysis (includes LLM call)
+        step_start = time.time()
+        logger.info("[5/7] Running vocal analysis and coaching...")
         pm = get_path_manager()
         analysis_output_dir = pm.get_local_output_dir(request_id, base_dir=output_base_dir)
 
@@ -399,20 +415,23 @@ class AudioProcessorService:
             output_dir=analysis_output_dir,
             skip_coaching=skip_coaching
         )
+        logger.info(f"[5/7] Done in {time.time() - step_start:.1f}s")
 
         # Step 6: Generate structured metrics
-        print("\n[6/7] Generating structured metrics...")
+        step_start = time.time()
+        logger.info("[6/7] Generating structured metrics...")
         coaching_analysis_path = analysis_results.get("analysis")
         coaching_feedback_path = analysis_results.get("coaching_feedback")
+        coaching_insights_path = analysis_results.get("coaching_insights")
 
         if coaching_analysis_path and os.path.exists(coaching_analysis_path):
             try:
                 structured_metrics = generate_structured_metrics(
                     coaching_analysis_path=coaching_analysis_path,
-                    coaching_feedback_path=coaching_feedback_path if coaching_feedback_path and os.path.exists(coaching_feedback_path) else None
+                    coaching_feedback_path=coaching_feedback_path if coaching_feedback_path and os.path.exists(coaching_feedback_path) else None,
+                    coaching_insights_path=coaching_insights_path if coaching_insights_path and os.path.exists(coaching_insights_path) else None
                 )
 
-                # Save structured metrics
                 pm = get_path_manager()
                 metrics_path = pm.get_local_metrics_path(request_id, base_dir=output_base_dir)
                 os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
@@ -420,28 +439,23 @@ class AudioProcessorService:
                 with open(metrics_path, 'w') as f:
                     json.dump(structured_metrics, f, indent=2)
 
-                print(f"✓ Structured metrics saved to: {metrics_path}")
-                print(f"  Overall Score: {structured_metrics['overall_score']}/10")
-                print(f"  Pace: {structured_metrics['pace']['rating']}")
-                print(f"  Pitch Variation: {structured_metrics['pitch_variation']['rating']}")
-                print(f"  Energy Level: {structured_metrics['energy_level']['rating']}")
-
+                logger.info(f"[6/7] Metrics: Score={structured_metrics['overall_score']}/10")
                 analysis_results["structured_metrics"] = metrics_path
 
             except Exception as e:
-                print(f"⚠ Warning: Could not generate structured metrics: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error(f"[6/7] Could not generate metrics: {e}")
+        logger.info(f"[6/7] Done in {time.time() - step_start:.1f}s")
 
         # Step 7: Upload all results to S3
-        print("\n[7/7] Uploading results to S3...")
+        step_start = time.time()
+        logger.info("[7/7] Uploading results to S3...")
         pm = get_path_manager()
-        s3_output_prefix = f"{request_id}/output"  # Keep as is - upload_directory handles subpaths
+        s3_output_prefix = f"{request_id}/output"
         uploaded_files = self.upload_directory_to_s3(analysis_output_dir, s3_output_prefix)
+        logger.info(f"[7/7] Done in {time.time() - step_start:.1f}s")
 
-        print("\n" + "=" * 80)
-        print(f"✅ PROCESSING COMPLETE: {request_id}")
-        print("=" * 80)
+        total_time = time.time() - pipeline_start
+        logger.info(f"PROCESSING COMPLETE: {request_id} in {total_time:.1f}s ({total_time/60:.1f} min)")
 
         return {
             "request_id": request_id,

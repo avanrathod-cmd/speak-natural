@@ -4,8 +4,10 @@ Unified speech coaching pipeline.
 
 Runs the complete workflow:
 1. Analyze speech (extract acoustic features + metrics)
-2. Generate visualizations (pitch, intensity, spectrograms)
-3. Generate AI coaching feedback (critique + improved SSML)
+2. Generate AI coaching feedback (critique + improved SSML)
+
+Note: Graph generation has been removed as the frontend uses its own waveform
+visualization component and doesn't use the SVG charts.
 
 Usage:
     python run_full_coaching.py <transcript.json> <audio.wav> <output_dir>
@@ -16,6 +18,8 @@ Example:
 
 import sys
 import json
+import time
+import logging
 from pathlib import Path
 import os
 from dotenv import load_dotenv
@@ -23,11 +27,19 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+sys.stdout.reconfigure(line_buffering=True)
+logger = logging.getLogger("speak-right.coaching")
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import modules from vocal_analysis
 from vocal_analysis.analyze_speech import analyze_speech_for_coaching
-from vocal_analysis.visualize_speech import generate_all_visualizations
 from vocal_analysis.generate_ssml import (
     extract_prosody_features,
     format_prosody_for_llm,
@@ -50,7 +62,6 @@ def run_full_coaching_pipeline(transcript_path: str,
 
     Outputs:
         - {output_dir}/analysis/coaching_analysis.json
-        - {output_dir}/visualizations/*.svg (5 charts)
         - {output_dir}/coaching/coaching_feedback.md
         - {output_dir}/coaching/prosody_data.txt (debug)
     """
@@ -62,9 +73,6 @@ def run_full_coaching_pipeline(transcript_path: str,
     analysis_dir = output_dir / "analysis"
     analysis_dir.mkdir(exist_ok=True)
 
-    viz_dir = output_dir / "visualizations"
-    viz_dir.mkdir(exist_ok=True)
-
     coaching_dir = output_dir / "coaching"
     coaching_dir.mkdir(exist_ok=True)
 
@@ -74,6 +82,7 @@ def run_full_coaching_pipeline(transcript_path: str,
     # File paths
     coaching_analysis_path = analysis_dir / f"{base_name}_coaching_analysis.json"
     coaching_feedback_path = coaching_dir / f"{base_name}_coaching_feedback.md"
+    coaching_insights_path = coaching_dir / f"{base_name}_insights.json"
     prosody_data_path = coaching_dir / f"{base_name}_prosody_data.txt"
 
     print("=" * 80)
@@ -89,7 +98,7 @@ def run_full_coaching_pipeline(transcript_path: str,
     # STEP 1: ANALYZE SPEECH
     # ============================================================================
     print("\n" + "=" * 80)
-    print("STEP 1/3: ANALYZING SPEECH")
+    print("STEP 1/2: ANALYZING SPEECH")
     print("=" * 80)
     print("Extracting acoustic features and speech metrics...\n")
 
@@ -99,23 +108,10 @@ def run_full_coaching_pipeline(transcript_path: str,
     print(f"   Saved to: {coaching_analysis_path}")
 
     # ============================================================================
-    # STEP 2: GENERATE VISUALIZATIONS
+    # STEP 2: GENERATE AI COACHING FEEDBACK
     # ============================================================================
     print("\n" + "=" * 80)
-    print("STEP 2/3: GENERATING VISUALIZATIONS")
-    print("=" * 80)
-    print("Creating pitch, intensity, and spectrogram charts...\n")
-
-    generate_all_visualizations(coaching_analysis_path, audio_path, viz_dir)
-
-    print(f"\n✅ Visualizations complete!")
-    print(f"   Saved to: {viz_dir}/")
-
-    # ============================================================================
-    # STEP 3: GENERATE AI COACHING FEEDBACK
-    # ============================================================================
-    print("\n" + "=" * 80)
-    print("STEP 3/3: GENERATING AI COACHING FEEDBACK")
+    print("STEP 2/2: GENERATING AI COACHING FEEDBACK")
     print("=" * 80)
 
     # Check for API key
@@ -165,14 +161,19 @@ def run_full_coaching_pipeline(transcript_path: str,
         print("🤖 Generating coaching feedback with Claude Opus...")
         print("   (This may take 30-60 seconds for detailed analysis)")
 
-        coaching_result = generate_coaching_feedback(transcript, prosody_text, api_key)
+        result = generate_coaching_feedback(transcript, prosody_text, api_key)
 
-        # Save coaching feedback
+        # Save coaching feedback (markdown)
         with open(coaching_feedback_path, 'w') as f:
-            f.write(coaching_result)
+            f.write(result["coaching_feedback"])
+
+        # Save insights (JSON)
+        with open(coaching_insights_path, 'w') as f:
+            json.dump(result["insights"], f, indent=2)
 
         print(f"\n✅ Coaching feedback complete!")
         print(f"   Saved to: {coaching_feedback_path}")
+        print(f"   Insights: {coaching_insights_path}")
 
     # ============================================================================
     # FINAL SUMMARY
@@ -194,21 +195,21 @@ def run_full_coaching_pipeline(transcript_path: str,
     print(f"   • Filler words: {speech_metrics['filler_word_count']} ({speech_metrics['filler_word_ratio']*100:.1f}%)")
     print(f"   • Long pauses: {speech_metrics['pause_count']}")
     print(f"   • Pitch range: {acoustic_features['parselmouth']['pitch_range_hz']:.1f} Hz")
-    print(f"   • Voice quality: {acoustic_features['parselmouth']['harmonics_to_noise_ratio_mean_db']:.1f} dB HNR")
+    print(f"   • Volume variation: {acoustic_features['parselmouth']['intensity_range_db']:.1f} dB")
 
     print("\n📁 Output Files:")
     print(f"   Analysis:       {coaching_analysis_path}")
-    print(f"   Visualizations: {viz_dir}/ (5 SVG charts)")
     if not skip_coaching and api_key:
         print(f"   AI Coaching:    {coaching_feedback_path}")
+        print(f"   AI Insights:    {coaching_insights_path}")
     print(f"   Prosody Data:   {prosody_data_path}")
 
     print("\n" + "=" * 80)
 
     return {
         "analysis": str(coaching_analysis_path),
-        "visualizations": str(viz_dir),
         "coaching_feedback": str(coaching_feedback_path) if (not skip_coaching and api_key) else None,
+        "coaching_insights": str(coaching_insights_path) if (not skip_coaching and api_key) else None,
         "prosody_data": str(prosody_data_path)
     }
 
@@ -219,8 +220,7 @@ if __name__ == "__main__":
         print("\nDescription:")
         print("  Runs the complete speech coaching pipeline:")
         print("    1. Analyze speech (acoustic features + metrics)")
-        print("    2. Generate visualizations (charts + spectrograms)")
-        print("    3. Generate AI coaching feedback (with Claude)")
+        print("    2. Generate AI coaching feedback (with Claude)")
         print("\nArguments:")
         print("  transcript.json  - AWS Transcribe JSON output with word timestamps")
         print("  audio.wav        - Audio file (WAV format)")
@@ -228,7 +228,7 @@ if __name__ == "__main__":
         print("\nOptions:")
         print("  --skip-coaching  - Skip AI coaching generation")
         print("\nEnvironment:")
-        print("  ANTHROPIC_API_KEY - Required for AI coaching (step 3)")
+        print("  ANTHROPIC_API_KEY - Required for AI coaching (step 2)")
         print("\nExamples:")
         print("  # Full pipeline with AI coaching:")
         print("  export ANTHROPIC_API_KEY='your-key-here'")

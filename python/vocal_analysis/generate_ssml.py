@@ -207,7 +207,21 @@ Provide specific, actionable advice on what the speaker should practice:
 - **Practice Exercises**: What should they practice to develop these skills?
 - **Progress Markers**: How will they know they're improving?
 
-Format your response clearly with headers and bullet points for readability."""
+Format sections 1-3 clearly with headers and bullet points for readability.
+
+# SECTION 4: STRUCTURED INSIGHTS (JSON)
+After sections 1-3, provide a JSON block with structured insights. This MUST be valid JSON wrapped in ```json and ``` markers:
+
+```json
+{{
+    "top_strengths": ["strength 1", "strength 2", "strength 3"],
+    "top_improvements": ["improvement 1", "improvement 2", "improvement 3"],
+    "overall_impression": "One sentence summary of the speaker's overall performance",
+    "confidence": "high"
+}}
+```
+
+Be specific in strengths and improvements - avoid generic statements. Base them on the actual analysis above."""
 
     return prompt
 
@@ -241,14 +255,13 @@ def generate_ssml_with_claude(transcript: str,
 
 def generate_coaching_feedback(transcript: str,
                                prosody_data: str,
-                               api_key: Optional[str] = None) -> str:
+                               api_key: Optional[str] = None) -> Dict[str, Any]:
     """
     Call Claude API to generate comprehensive speech coaching feedback.
 
-    Returns a detailed analysis including:
-    - Critique of current speech patterns
-    - Improved SSML markup
-    - Actionable coaching guidance
+    Returns a dictionary with:
+    - coaching_feedback: Markdown analysis (critique, SSML, guidance)
+    - insights: Structured insights (strengths, improvements, overall impression)
     """
     if api_key is None:
         api_key = os.environ.get('ANTHROPIC_API_KEY')
@@ -262,13 +275,44 @@ def generate_coaching_feedback(transcript: str,
 
     message = client.messages.create(
         model="claude-opus-4-5-20251101",
-        max_tokens=16000,  # Increased for detailed coaching feedback
+        max_tokens=16000,
         messages=[
             {"role": "user", "content": prompt}
         ]
     )
 
-    return message.content[0].text
+    response_text = message.content[0].text
+
+    # Parse the response to extract markdown and JSON insights
+    json_start = response_text.find('```json')
+    json_end = response_text.rfind('```')
+
+    insights = {}
+    if json_start != -1 and json_end > json_start:
+        json_str = response_text[json_start + 7:json_end].strip()
+        try:
+            insights = json.loads(json_str)
+        except json.JSONDecodeError:
+            insights = {
+                "top_strengths": [],
+                "top_improvements": [],
+                "overall_impression": "",
+                "confidence": "low"
+            }
+        coaching_feedback = response_text[:json_start].strip()
+    else:
+        coaching_feedback = response_text
+        insights = {
+            "top_strengths": [],
+            "top_improvements": [],
+            "overall_impression": "",
+            "confidence": "low"
+        }
+
+    return {
+        "coaching_feedback": coaching_feedback,
+        "insights": insights
+    }
 
 
 def generate_ssml_from_coaching_data(coaching_json_path: str,
@@ -396,17 +440,23 @@ if __name__ == "__main__":
         transcript = coaching_data['transcript']
 
         print("🤖 Generating coaching feedback with Claude Opus...")
-        coaching_result = generate_coaching_feedback(transcript, prosody_text)
+        result = generate_coaching_feedback(transcript, prosody_text)
 
         # Save coaching feedback
         with open(output_file, 'w') as f:
-            f.write(coaching_result)
+            f.write(result["coaching_feedback"])
         print(f"  ✓ Coaching feedback saved to: {output_file}")
+
+        # Save insights
+        insights_file = Path(output_file).parent / f"{Path(output_file).stem}_insights.json"
+        with open(insights_file, 'w') as f:
+            json.dump(result["insights"], f, indent=2)
+        print(f"  ✓ Insights saved to: {insights_file}")
 
         print("\n" + "=" * 80)
         print("COACHING FEEDBACK:")
         print("=" * 80)
-        print(coaching_result)
+        print(result["coaching_feedback"])
 
     else:  # ssml_only_mode
         print("📝 SSML MODE: Generating SSML reproduction\n")

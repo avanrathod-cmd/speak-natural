@@ -97,7 +97,8 @@ def process_audio_background(coaching_id: str, audio_file_path: str):
 
         # Process audio
         results = audio_processor.process_audio_file(
-            audio_file_path=audio_file_path,
+            audio_file_path=au
+            dio_file_path,
             request_id=coaching_id,
             output_base_dir=storage_manager.base_dir,
             skip_coaching=False
