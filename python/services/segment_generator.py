@@ -633,6 +633,7 @@ def generate_improved_audio_from_ssml(
     # Initialize ElevenLabs client
     client = ElevenLabs(api_key=api_key)
 
+    print(f"Generating improved audio with ElevenLabs voice ID {voice_id} and content: {content[:60]}...")
     # Generate audio (ElevenLabs supports SSML-like tags)
     response = client.text_to_speech.convert(
         voice_id=voice_id,
