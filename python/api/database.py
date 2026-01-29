@@ -115,15 +115,17 @@ class DatabaseService:
         status: str,
         progress: Optional[str] = None,
         error: Optional[str] = None,
+        audio_filename: Optional[str] = None,
     ) -> Dict:
         """
-        Update session status and optionally progress/error.
+        Update session status and optionally progress/error/audio_filename.
 
         Args:
             coaching_id: Coaching session ID
             status: New status (pending, processing, completed, failed)
             progress: Optional progress message
             error: Optional error message
+            audio_filename: Optional updated audio filename (e.g., after conversion to WAV)
 
         Returns:
             Updated session data
@@ -135,6 +137,9 @@ class DatabaseService:
 
         if error is not None:
             update_data["error"] = error
+
+        if audio_filename is not None:
+            update_data["audio_filename"] = audio_filename
 
         if status == "completed":
             update_data["completed_at"] = datetime.now().isoformat()

@@ -106,6 +106,12 @@ def process_audio_background(coaching_id: str, audio_file_path: str):
         # Update metadata with results
         metadata = storage_manager.load_session_metadata(coaching_id)
         metadata.update(results)
+
+        # Update audio_filename to the actual WAV file used for processing
+        wav_path = results.get("input", {}).get("wav_audio_file")
+        if wav_path:
+            metadata["audio_filename"] = os.path.basename(wav_path)
+
         storage_manager.save_session_metadata(coaching_id, metadata)
 
         # Update status to completed
@@ -599,7 +605,8 @@ async def get_detailed_metrics(
             raise HTTPException(status_code=404, detail="Analysis not available for this session")
 
         # Ensure files are local (download from S3 if needed)
-        analysis_path = storage_manager.ensure_local_file(analysis_path_or_url, coaching_id, "analysis")
+        analysis_path = storage_manager.ensure_local_file(
+            analysis_path_or_url, coaching_id, "analysis")
 
         coaching_feedback_path = None
         if coaching_feedback_path_or_url:
@@ -1215,7 +1222,6 @@ async def get_full_original(
         Original audio file
     """
     metadata = storage_manager.load_session_metadata(coaching_id)
-
     if not metadata:
         raise HTTPException(status_code=404, detail=f"Coaching session not found: {coaching_id}")
 
@@ -1226,9 +1232,11 @@ async def get_full_original(
     audio_path = metadata.get("input", {}).get("wav_audio_file")
 
 
-    if not audio_path or not os.path.exists(audio_path):
+    if not audio_path:
         raise HTTPException(status_code=404, detail="Original audio file not found")
 
+    audio_path = storage_manager.ensure_local_file(audio_path, coaching_id, "audio")     
+    
     return FileResponse(
         path=audio_path,
         media_type="audio/wav",

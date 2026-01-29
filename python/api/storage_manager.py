@@ -113,6 +113,8 @@ class StorageManager:
                 update_data["progress"] = metadata["progress"]
             if "error" in metadata:
                 update_data["error"] = metadata["error"]
+            if "audio_filename" in metadata:
+                update_data["audio_filename"] = metadata["audio_filename"]
             if "directories" in metadata:
                 self.db.update_directories(coaching_id, metadata["directories"])
             if "voice_mapping" in metadata:
@@ -123,7 +125,8 @@ class StorageManager:
                     coaching_id,
                     status=update_data.get("status", existing_session["status"]),
                     progress=update_data.get("progress"),
-                    error=update_data.get("error")
+                    error=update_data.get("error"),
+                    audio_filename=update_data.get("audio_filename")
                 )
         else:
             # Create new session
