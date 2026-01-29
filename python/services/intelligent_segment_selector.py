@@ -75,15 +75,19 @@ def create_segment_selection_prompt(
     Returns:
         Prompt string
     """
-    return f"""You are an expert speech coach helping a non-native English speaker improve their American English delivery.
+    return f"""You are an expert speech coach helping a non-native English speaker improve
+their American English delivery.
 
-You have already analyzed their speech and provided detailed coaching feedback. Now, select {max_segments} specific segments from the transcript that would be MOST VALUABLE for the speaker to practice.
+You have already analyzed their speech and provided detailed coaching feedback.
+Now, select {max_segments} specific segments from the transcript that would be MOST VALUABLE for
+the speaker to practice.
 
 # SELECTION CRITERIA
 Choose segments that:
-1. **Demonstrate key issues** - Show clear examples of problems you identified (filler words, monotone, wrong emphasis, pace issues)
+1. **Demonstrate key issues** - Show clear examples of problems you identified 
+(filler words, monotone, wrong emphasis, pace issues)
 2. **Have high learning value** - Where fixing the issue creates noticeable improvement
-3. **Are self-contained** - 5-15 seconds, complete thoughts
+3. **Are self-contained** - 10-20 seconds, complete thoughts
 4. **Show variety** - Cover different types of issues (not all the same problem)
 5. **Include 1 positive example** - One segment they did well (if any exist)
 
@@ -101,19 +105,19 @@ Select {max_segments} segments and for EACH provide:
 
 1. **Time Range**: Exact start and end times from the transcript above
 2. **Selection Reason**: Why this segment is valuable for learning (1-2 sentences)
-3. **Original Text**: Exact text from transcript (preserve fillers and errors)
-4. **Improved Text**: How it should be spoken (remove fillers, fix minor grammar if needed)
-5. **Improved SSML**: SSML markup showing proper prosody
-6. **Primary Issues**: List of specific problems (e.g., ["filler-words", "monotone", "too-fast"])
-7. **Coaching Tip**: Specific, actionable advice for this segment (2-3 sentences)
-8. **Priority**: "high", "medium", or "low"
+3. **Original SSML**: SSML markup showing how the user ACTUALLY spoke - preserve fillers, mark words they stressed, show their actual pace
+4. **Improved SSML**: SSML markup showing how it SHOULD be spoken - remove fillers, mark words that need emphasis, show proper pace
+5. **Primary Issues**: List of specific problems (e.g., ["filler-words", "monotone", "too-fast"])
+6. **Coaching Tip**: Specific, actionable advice for this segment (2-3 sentences)
+7. **Priority**: "high", "medium", or "low"
 
 # SSML GUIDELINES
-Use these tags in your improved SSML:
-- `<prosody rate="X%">` for pace (85%-115%)
-- `<prosody pitch="X%">` for pitch variation (-20% to +20%)
-- `<emphasis level="moderate|strong">` for stressed words
+Use these tags in BOTH original and improved SSML:
+- `<prosody rate="X%">` for pace (85%-115%, use 100% as baseline)
+- `<emphasis level="moderate|strong">` for stressed words (mark what user DID stress in original, what SHOULD be stressed in improved)
 - `<break time="Xms"/>` for pauses (300-700ms)
+- Preserve filler words in original_ssml (um, uh, like, you know, etc.)
+- Add proper punctuation in both versions
 
 # OUTPUT FORMAT
 Respond with ONLY valid JSON (no markdown code blocks, no explanation):
@@ -127,8 +131,7 @@ Respond with ONLY valid JSON (no markdown code blocks, no explanation):
         "end": 18.3
       }},
       "selection_reason": "Demonstrates excessive filler words and weak emphasis on key terms.",
-      "original_text": "So um I think that we should like consider this option",
-      "improved_text": "I think we should consider this option",
+      "original_ssml": "<prosody rate='110%'>So um I <emphasis level='moderate'>think</emphasis> that we should like consider this option.</prosody>",
       "improved_ssml": "<prosody rate='95%'>I <emphasis level='moderate'>think</emphasis> we should <emphasis level='strong'>consider</emphasis> this option.</prosody>",
       "primary_issues": ["filler-words", "weak-emphasis"],
       "coaching_tip": "Remove filler words ('so', 'um', 'like') and add natural emphasis on action words like 'think' and 'consider'.",
@@ -164,9 +167,8 @@ def select_segments_with_claude(
                 "segment_id": 1,
                 "time_range": {"start": 12.5, "end": 18.3},
                 "selection_reason": "...",
-                "original_text": "...",
-                "improved_text": "...",
-                "improved_ssml": "...",
+                "original_ssml": "<prosody rate='110%'>So um I <emphasis>think</emphasis>...</prosody>",
+                "improved_ssml": "<prosody rate='95%'>I <emphasis>think</emphasis>...</prosody>",
                 "primary_issues": ["filler-words", "monotone"],
                 "coaching_tip": "...",
                 "priority": "high"
@@ -264,11 +266,6 @@ def enrich_segments_with_metadata(
         # Add duration
         segment['duration'] = round(end - start, 2)
 
-        # Count words
-        original_text = segment['original_text']
-        word_count = len(original_text.split())
-        segment['word_count'] = word_count
-
         # Map severity from priority
         priority = segment.get('priority', 'medium')
         if priority == 'high':
@@ -288,14 +285,6 @@ def enrich_segments_with_metadata(
         else:
             segment['quality_score'] = max(0, 10 - segment['severity_score'])
             segment['is_exemplary'] = False
-
-        # Calculate metrics from duration and word count
-        pace_wpm = (word_count / segment['duration']) * 60 if segment['duration'] > 0 else 0
-        segment['metrics'] = {
-            'pace_wpm': round(pace_wpm, 1),
-            'filler_ratio': 0.0,  # Claude already removed fillers in improved text
-            'confidence': 1.0  # Assume high confidence for selected segments
-        }
 
         # Format issues for API response
         issues_list = []

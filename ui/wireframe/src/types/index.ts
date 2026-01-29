@@ -140,19 +140,14 @@ export interface TranscriptSegmentAPI {
   start_time: number;
   end_time: number;
   duration: number;
-  text: string;
-  word_count: number;
+  original_ssml: string;
+  improved_ssml: string;
   severity: 'good' | 'warning' | 'error';
   severity_score: number;
   quality_score: number;
   is_exemplary: boolean;
   issues: SegmentIssue[];
   primary_issue: SegmentIssue | null;
-  metrics: {
-    pace_wpm: number;
-    filler_ratio: number;
-    confidence: number;
-  };
   original_audio_url: string;
   improved_audio_url: string;
 }
@@ -166,7 +161,8 @@ export interface SegmentIssue {
 // Frontend-only Types (For UI Display)
 export interface TranscriptSegment {
   id: number;
-  text: string;
+  original_ssml: string;
+  improved_ssml?: string;
   startTime: string;
   endTime: string;
   start_seconds: number;
@@ -175,7 +171,6 @@ export interface TranscriptSegment {
   issueText?: string;
   score: 'good' | 'warning' | 'error';
   tip?: string;
-  pace_wpm?: number;
   original_audio_url?: string;
   improved_audio_url?: string;
 }

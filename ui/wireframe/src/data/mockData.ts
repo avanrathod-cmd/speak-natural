@@ -11,7 +11,8 @@ import {
 export const mockTranscriptSegments: TranscriptSegment[] = [
   {
     id: 1,
-    text: "Hi Sarah, thanks for taking the time today.",
+    original_ssml: "Hi Sarah, thanks for taking the time today.",
+    improved_ssml: "Hi Sarah, <emphasis level='moderate'>thanks</emphasis> for taking the time today.",
     startTime: "0:00",
     endTime: "0:03",
     start_seconds: 0,
@@ -21,7 +22,8 @@ export const mockTranscriptSegments: TranscriptSegment[] = [
   },
   {
     id: 2,
-    text: "I wanted to walk you through our new analytics platform and show you how it can really transform your team's workflow.",
+    original_ssml: "I wanted to walk you through our new analytics platform and show you how it can really transform your team's workflow.",
+    improved_ssml: "I wanted to walk you through our <emphasis level='strong'>new analytics platform</emphasis>, <break time='300ms'/> and show you how it can <emphasis level='moderate'>really transform</emphasis> your team's workflow.",
     startTime: "0:03",
     endTime: "0:09",
     start_seconds: 3,
@@ -29,12 +31,12 @@ export const mockTranscriptSegments: TranscriptSegment[] = [
     issue: "too-fast",
     issueText: "Too fast (180 wpm) - Add pauses",
     score: "warning",
-    tip: 'Add a pause after "platform" and before "and show you"',
-    pace_wpm: 180
+    tip: 'Add a pause after "platform" and before "and show you"'
   },
   {
     id: 3,
-    text: "We've been working with companies like yours for the past five years.",
+    original_ssml: "We've been working with companies like yours for the past five years.",
+    improved_ssml: "We've been working with companies <emphasis level='moderate'>like yours</emphasis> for the past <emphasis level='strong'>five years</emphasis>.",
     startTime: "0:09",
     endTime: "0:13",
     start_seconds: 9,
@@ -46,7 +48,8 @@ export const mockTranscriptSegments: TranscriptSegment[] = [
   },
   {
     id: 4,
-    text: "What I'd love to do is show you a quick demo of how our dashboard works.",
+    original_ssml: "What I'd love to do is show you a quick demo of how our dashboard works.",
+    improved_ssml: "What I'd <emphasis level='moderate'>love</emphasis> to do is show you a <emphasis level='moderate'>quick demo</emphasis> of how our dashboard works.",
     startTime: "0:13",
     endTime: "0:18",
     start_seconds: 13,
@@ -82,7 +85,8 @@ export const mockWaveformSegments: WaveformSegment[] = [
 export const convertTranscriptSegmentsToUI = (apiSegments: TranscriptSegmentAPI[]): TranscriptSegment[] => {
   return apiSegments.map((seg) => ({
     id: seg.segment_id,
-    text: seg.text,
+    original_ssml: seg.original_ssml,
+    improved_ssml: seg.improved_ssml,
     startTime: formatTime(seg.start_time),
     endTime: formatTime(seg.end_time),
     start_seconds: seg.start_time,
@@ -91,7 +95,6 @@ export const convertTranscriptSegmentsToUI = (apiSegments: TranscriptSegmentAPI[
     issueText: seg.primary_issue?.description,
     score: seg.severity,
     tip: seg.primary_issue?.tip,
-    pace_wpm: seg.metrics.pace_wpm,
     original_audio_url: seg.original_audio_url,
     improved_audio_url: seg.improved_audio_url,
   }));

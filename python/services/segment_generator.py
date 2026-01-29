@@ -556,7 +556,6 @@ def generate_segments_with_audio_intelligent(
     for segment in segments:
         segment['start_time'] = segment['time_range']['start']
         segment['end_time'] = segment['time_range']['end']
-        segment['text'] = segment['original_text']  # For compatibility
 
     # Create output directories
     original_dir = os.path.join(output_dir, 'original')

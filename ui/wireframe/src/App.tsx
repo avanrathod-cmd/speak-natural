@@ -18,6 +18,7 @@ import {
   renderDialogueWithEmphasis,
   countDialogueWords
 } from './data/mockData';
+import { parseSSML } from './utils/ssmlParser';
 import './App.css';
 
 // Isolated timer component to prevent parent re-renders every second
@@ -82,6 +83,8 @@ export default function SpeechCoachApp() {
   // NEW: Transcript and waveform state
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([]);
   const [isLoadingTranscript, setIsLoadingTranscript] = useState(false);
+  // Track which version is displayed for each segment
+  const [segmentDisplayVersions, setSegmentDisplayVersions] = useState<Record<number, 'original' | 'improved'>>({});
   const [waveformPeaks, setWaveformPeaks] = useState<number[]>([]);
   const [waveformQualitySegments, setWaveformQualitySegments] = useState<QualitySegment[]>([]);
   const [isLoadingWaveform, setIsLoadingWaveform] = useState(false);
@@ -515,6 +518,15 @@ export default function SpeechCoachApp() {
   const SegmentPlayer = ({ segment }: { segment: TranscriptSegment }) => {
     const isPlaying = playingSegment === segment.id;
     const isHovered = hoveredSegment === segment.id;
+    const displayVersion = segmentDisplayVersions[segment.id] || 'original';
+
+    const setDisplayVersion = (version: 'original' | 'improved') => {
+      setSegmentDisplayVersions(prev => ({ ...prev, [segment.id]: version }));
+    };
+
+    // Parse SSML for both original and improved
+    const originalParsed = parseSSML(segment.original_ssml);
+    const improvedParsed = parseSSML(segment.improved_ssml || '');
 
     const getBorderColor = () => {
       if (segment.score === 'warning') return 'border-l-yellow-500';
@@ -526,6 +538,21 @@ export default function SpeechCoachApp() {
       if (isPlaying) return 'bg-blue-50';
       if (isHovered) return 'bg-gray-50';
       return 'bg-white';
+    };
+
+    // Render SSML parts with emphasis highlighting
+    const renderSSMLParts = (parts: typeof originalParsed.parts, type: 'original' | 'improved') => {
+      return parts.map((part, idx) => {
+        if (part.emphasis === 'none') {
+          return <span key={idx}>{part.text}</span>;
+        }
+        // Original: blue highlight for what user stressed
+        // Improved: green highlight for what should be stressed
+        const emphasisClass = type === 'original'
+          ? part.emphasis === 'strong' ? 'bg-blue-200 text-blue-900 font-semibold px-0.5 rounded' : 'bg-blue-100 text-blue-800 px-0.5 rounded'
+          : part.emphasis === 'strong' ? 'bg-green-200 text-green-900 font-semibold px-0.5 rounded' : 'bg-green-100 text-green-800 px-0.5 rounded';
+        return <span key={idx} className={emphasisClass}>{part.text}</span>;
+      });
     };
 
     return (
@@ -540,7 +567,17 @@ export default function SpeechCoachApp() {
           </div>
 
           <div className="flex-1">
-            <p className="text-gray-900 mb-2 leading-relaxed">{segment.text}</p>
+            {/* Show either original or improved based on displayVersion */}
+            <div className="mb-3">
+              <span className="text-xs text-gray-500 uppercase tracking-wide">
+                {displayVersion === 'original' ? 'Your version:' : 'Improved version:'}
+              </span>
+              <p className="text-gray-900 leading-relaxed mt-1">
+                {displayVersion === 'original'
+                  ? renderSSMLParts(originalParsed.parts, 'original')
+                  : renderSSMLParts(improvedParsed.parts, 'improved')}
+              </p>
+            </div>
 
             {segment.issue && (
               <div className="flex items-center gap-2 text-sm text-yellow-700 bg-yellow-50 px-3 py-1.5 rounded mb-3">
@@ -551,7 +588,9 @@ export default function SpeechCoachApp() {
 
             <div className="flex gap-2">
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDisplayVersion('original');
                   if (isPlaying && playingVersion === 'original') {
                     stopAudio();
                   } else {
@@ -562,6 +601,8 @@ export default function SpeechCoachApp() {
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                   isPlaying && playingVersion === 'original'
                     ? 'bg-blue-600 text-white'
+                    : displayVersion === 'original'
+                    ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                     : segment.original_audio_url
                     ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed'
@@ -576,7 +617,9 @@ export default function SpeechCoachApp() {
               </button>
 
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDisplayVersion('improved');
                   if (isPlaying && playingVersion === 'improved') {
                     stopAudio();
                   } else {
@@ -587,6 +630,8 @@ export default function SpeechCoachApp() {
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                   isPlaying && playingVersion === 'improved'
                     ? 'bg-green-600 text-white'
+                    : displayVersion === 'improved'
+                    ? 'bg-green-100 text-green-700 hover:bg-green-200'
                     : segment.improved_audio_url
                     ? 'bg-green-50 text-green-700 hover:bg-green-100'
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed'
