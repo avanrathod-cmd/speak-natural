@@ -294,7 +294,6 @@ def enrich_segments_with_metadata(
                 'description': segment.get('selection_reason', ''),
                 'tip': segment.get('coaching_tip', '')
             })
-        segment['issues'] = issues_list
 
         # Set primary_issue
         segment['primary_issue'] = issues_list[0] if issues_list else None

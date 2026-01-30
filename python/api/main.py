@@ -17,7 +17,7 @@ from typing import Optional
 import json
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Query, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Query, Depends, Form
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -41,13 +41,15 @@ from api.models import (
     SignupResponse,
     PracticeTheme,
     PracticeThemesResponse,
-    PracticeDialogueResponse
+    PracticeDialogueResponse,
+    PracticeAnalyzeResponse
 )
 from api.storage_manager import StorageManager
 from services.audio_processor import AudioProcessorService
 from api.auth import get_current_user, get_current_user_optional
 from services.waveform_generator import generate_waveform_data
 from services.segment_generator import generate_segments_with_audio, generate_segments_with_audio_intelligent
+from services.practice_analyzer import analyze_practice_recording
 from utils.aws_utils import s3_client
 from utils.s3_paths import get_path_manager
 
@@ -318,6 +320,100 @@ async def get_practice_dialogue(
         dialogue=dialogue,
         word_count=count_dialogue_words(dialogue)
     )
+
+
+@app.post(
+    "/coaching/{coaching_id}/segment/{segment_id}/practice-analyze",
+    response_model=PracticeAnalyzeResponse,
+    tags=["Practice"]
+)
+async def analyze_practice_segment(
+    coaching_id: str,
+    segment_id: int,
+    improved_ssml: str = Form(...),
+    audio_file: UploadFile = File(...),
+    user: dict = Depends(get_current_user)
+):
+    """
+    Analyze a practice recording against the improved SSML target.
+
+    **Authentication Required**: Bearer token from Supabase
+
+    This endpoint compares the user's practice recording against the
+    target SSML and provides detailed scoring across four categories:
+
+    - **Emphasis (40%)**: Did bolded words have higher energy than baseline?
+    - **Pause (30%)**: Did pauses match expected durations from SSML?
+    - **Pitch (20%)**: Was there good pitch variation?
+    - **Speed (10%)**: Did pace match the target rate?
+
+    A score of 80+ indicates mastery of the segment.
+
+    Args:
+        coaching_id: Coaching session ID
+        segment_id: Segment ID being practiced
+        improved_ssml: Target SSML string (from segment.improved_ssml)
+        audio_file: Recorded audio (audio/webm from MediaRecorder)
+        user: Authenticated user
+
+    Returns:
+        PracticeAnalyzeResponse with scores and word-level breakdown
+
+    Example Response:
+    ```json
+    {
+      "overall_score": 85,
+      "emphasis_score": 90,
+      "pause_score": 80,
+      "pitch_score": 85,
+      "speed_score": 75,
+      "passed": true,
+      "word_breakdown": [...],
+      "baseline": {
+        "energy_mean_db": 62.5,
+        "pitch_mean_hz": 165.3,
+        "duration_seconds": 8.2
+      }
+    }
+    ```
+    """
+    # Verify coaching session exists and belongs to user
+    metadata = storage_manager.load_session_metadata(coaching_id)
+    if not metadata:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Coaching session not found: {coaching_id}"
+        )
+    if metadata.get("user_id") != user["user_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: not your coaching session"
+        )
+
+    try:
+        # Read audio data
+        audio_data = await audio_file.read()
+
+        if len(audio_data) == 0:
+            raise HTTPException(status_code=400, detail="Empty audio file")
+
+        # Analyze the recording against the SSML target
+        results = analyze_practice_recording(
+            audio_data=audio_data,
+            improved_ssml=improved_ssml
+        )
+
+        return PracticeAnalyzeResponse(**results)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Analysis failed: {str(e)}"
+        )
 
 
 @app.post("/upload-audio", response_model=UploadAudioResponse, tags=["Audio Processing"])
@@ -710,16 +806,11 @@ async def get_coaching_feedback(
                 elif current_section == "improvements":
                     improvements.append(line.lstrip('- '))
 
-        # Create segments (simplified)
-        segments = []
-        # TODO: Parse actual segments from analysis
-
         return CoachingFeedbackResponse(
             coaching_id=coaching_id,
             general_feedback='\n'.join(general_feedback) or feedback_content[:500],
             strong_points=strong_points or ["Analysis complete"],
             improvements=improvements or ["See detailed feedback"],
-            segments=segments
         )
 
     except HTTPException:

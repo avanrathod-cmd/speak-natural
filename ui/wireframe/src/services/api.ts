@@ -9,6 +9,7 @@ import {
   SessionsResponse,
   PracticeThemesResponse,
   PracticeDialogueResponse,
+  PracticeAnalyzeResponse,
 } from '../types';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -221,6 +222,36 @@ class ApiService {
     }
 
     return response.blob();
+  }
+
+  async analyzePractice(
+    coachingId: string,
+    segmentId: number,
+    audioBlob: Blob,
+    improvedSsml: string,
+    token: string
+  ): Promise<PracticeAnalyzeResponse> {
+    const formData = new FormData();
+    formData.append('audio_file', audioBlob, 'practice.webm');
+    formData.append('improved_ssml', improvedSsml);
+
+    const response = await fetch(
+      `${API_URL}/coaching/${coachingId}/segment/${segmentId}/practice-analyze`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(error.detail || `Analysis failed: ${response.statusText}`);
+    }
+
+    return response.json();
   }
 }
 

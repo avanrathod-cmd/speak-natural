@@ -47,7 +47,6 @@ class SegmentResponse(BaseModel):
     severity_score: float
     quality_score: float
     is_exemplary: bool
-    issues: List[Dict] = Field(default_factory=list, description="List of detected issues")
     primary_issue: Optional[Dict] = None
     original_audio_url: Optional[str] = None
     improved_audio_url: Optional[str] = None
@@ -111,3 +110,34 @@ class PracticeDialogueResponse(BaseModel):
     dialogue: str = Field(..., description="Dialogue text with **bold** markers for emphasis")
     word_count: int = Field(..., description="Approximate word count")
 
+
+# Practice Analysis Models
+
+class WordBreakdown(BaseModel):
+    """Per-word analysis breakdown for practice scoring."""
+    word: str = Field(..., description="The word analyzed")
+    expected_emphasis: str = Field(..., description="Expected emphasis: none, moderate, or strong")
+    energy_relative: float = Field(..., description="Ratio of word energy to user's baseline")
+    emphasis_score: float = Field(..., ge=0, le=100, description="Score for emphasis delivery")
+    expected_pause_ms: int = Field(..., description="Expected pause after word in ms")
+    actual_pause_ms: float = Field(..., description="Actual pause after word in ms")
+    pause_score: float = Field(..., ge=0, le=100, description="Score for pause timing")
+
+
+class BaselineStats(BaseModel):
+    """User's baseline statistics computed from their recording."""
+    energy_mean_db: float = Field(..., description="Mean energy in dB")
+    pitch_mean_hz: float = Field(..., description="Mean pitch in Hz")
+    duration_seconds: float = Field(..., description="Total recording duration")
+
+
+class PracticeAnalyzeResponse(BaseModel):
+    """Response model for practice segment analysis."""
+    overall_score: int = Field(..., ge=0, le=100, description="Overall practice score (0-100)")
+    emphasis_score: int = Field(..., ge=0, le=100, description="Score for word emphasis (40% weight)")
+    pause_score: int = Field(..., ge=0, le=100, description="Score for pause timing (30% weight)")
+    pitch_score: int = Field(..., ge=0, le=100, description="Score for pitch variation (20% weight)")
+    speed_score: int = Field(..., ge=0, le=100, description="Score for pace matching (10% weight)")
+    passed: bool = Field(..., description="True if overall_score >= 80 (mastered)")
+    word_breakdown: List[WordBreakdown] = Field(..., description="Per-word analysis details")
+    baseline: BaselineStats = Field(..., description="User's computed baseline for this recording")

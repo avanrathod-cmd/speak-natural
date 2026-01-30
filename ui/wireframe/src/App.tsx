@@ -9,7 +9,8 @@ import {
   DetailedMetricsResponse,
   QualitySegment,
   SessionItem,
-  PracticeTheme
+  PracticeTheme,
+  PracticeAnalyzeResponse
 } from './types';
 import {
   mockProgressData,
@@ -102,6 +103,11 @@ export default function SpeechCoachApp() {
   const [isPlayingPractice, setIsPlayingPractice] = useState(false);
   const practiceRecorderRef = useRef<MediaRecorder | null>(null);
   const practiceAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Practice analysis state
+  const [practiceAnalysis, setPracticeAnalysis] = useState<PracticeAnalyzeResponse | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -393,6 +399,10 @@ export default function SpeechCoachApp() {
     setPracticeAudioUrl(null);
     setIsPracticeRecording(false);
     setIsPlayingPractice(false);
+    // Reset analysis state
+    setPracticeAnalysis(null);
+    setAnalysisError(null);
+    setIsAnalyzing(false);
   };
 
   const startPracticeRecording = async () => {
@@ -451,6 +461,34 @@ export default function SpeechCoachApp() {
       practiceAudioRef.current.pause();
       practiceAudioRef.current.currentTime = 0;
       setIsPlayingPractice(false);
+    }
+  };
+
+  const analyzePracticeRecording = async () => {
+    if (!practiceRecording || !practiceModalSegment || !currentCoachingId) return;
+
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    setPracticeAnalysis(null);
+
+    try {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const results = await apiService.analyzePractice(
+        currentCoachingId,
+        practiceModalSegment.id,
+        practiceRecording,
+        practiceModalSegment.improved_ssml || '',
+        token
+      );
+
+      setPracticeAnalysis(results);
+    } catch (error) {
+      console.error('Analysis failed:', error);
+      setAnalysisError(error instanceof Error ? error.message : 'Analysis failed');
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
@@ -676,9 +714,16 @@ export default function SpeechCoachApp() {
             </div>
 
             {segment.issue && (
-              <div className="flex items-center gap-2 text-sm text-yellow-700 bg-yellow-50 px-3 py-1.5 rounded mb-3">
-                <AlertCircle className="w-4 h-4" />
-                <span>{segment.issueText}</span>
+              <div className="flex items-start gap-2 text-sm text-yellow-700 bg-yellow-50 px-3 py-1.5 rounded mb-3">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div>
+                  <span>{segment.issueText}</span>
+                  {segment.tip && (
+                    <div className="mt-1">
+                      <span className="font-medium">Tip:</span> {segment.tip}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1703,20 +1748,143 @@ export default function SpeechCoachApp() {
                   </button>
                 )}
 
-                {/* Analyze button (unimplemented) */}
+                {/* Analyze button */}
                 <button
-                  disabled
-                  className="flex items-center gap-2 px-6 py-3 bg-gray-200 text-gray-400 rounded-lg cursor-not-allowed font-medium"
-                  title="Coming soon"
+                  onClick={analyzePracticeRecording}
+                  disabled={!practiceRecording || isPracticeRecording || isAnalyzing}
+                  className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
+                    practiceRecording && !isPracticeRecording && !isAnalyzing
+                      ? 'bg-purple-600 text-white hover:bg-purple-700'
+                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  }`}
                 >
-                  <TrendingUp className="w-5 h-5" />
-                  Analyze
+                  {isAnalyzing ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <TrendingUp className="w-5 h-5" />
+                      Analyze
+                    </>
+                  )}
                 </button>
               </div>
 
-              <p className="text-xs text-gray-400 text-center mt-4">
-                Analyze feature coming soon - compare your recording with the improved version
-              </p>
+              {/* Analysis Error */}
+              {analysisError && (
+                <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-center gap-2 text-red-700">
+                    <AlertCircle className="w-5 h-5" />
+                    <span className="font-medium">Analysis failed</span>
+                  </div>
+                  <p className="text-red-600 text-sm mt-1">{analysisError}</p>
+                </div>
+              )}
+
+              {/* Analysis Results */}
+              {practiceAnalysis && (
+                <div className="mt-6 space-y-4">
+                  {/* Overall Score */}
+                  <div className={`p-4 rounded-lg border ${
+                    practiceAnalysis.passed
+                      ? 'bg-green-50 border-green-200'
+                      : 'bg-yellow-50 border-yellow-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm text-gray-600 font-medium">Overall Score</div>
+                        <div className={`text-3xl font-bold ${
+                          practiceAnalysis.passed ? 'text-green-600' : 'text-yellow-600'
+                        }`}>
+                          {practiceAnalysis.overall_score}/100
+                        </div>
+                      </div>
+                      <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                        practiceAnalysis.passed
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {practiceAnalysis.passed ? 'Passed!' : 'Keep practicing'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Category Breakdown */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { name: 'Emphasis', score: practiceAnalysis.emphasis_score, weight: '40%' },
+                      { name: 'Pauses', score: practiceAnalysis.pause_score, weight: '30%' },
+                      { name: 'Pitch', score: practiceAnalysis.pitch_score, weight: '20%' },
+                      { name: 'Speed', score: practiceAnalysis.speed_score, weight: '10%' },
+                    ].map(({ name, score, weight }) => (
+                      <div key={name} className="bg-gray-50 rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm text-gray-600">{name}</span>
+                          <span className="text-xs text-gray-400">{weight}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-gray-200 rounded-full h-2">
+                            <div
+                              className={`h-2 rounded-full ${
+                                score >= 80 ? 'bg-green-500' : score >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                              }`}
+                              style={{ width: `${score}%` }}
+                            />
+                          </div>
+                          <span className="text-sm font-medium w-8">{score}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Word Breakdown (collapsible) */}
+                  <details className="bg-gray-50 rounded-lg">
+                    <summary className="p-3 cursor-pointer text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">
+                      Word-by-word breakdown ({practiceAnalysis.word_breakdown.length} words)
+                    </summary>
+                    <div className="p-3 pt-0 max-h-48 overflow-y-auto">
+                      <div className="space-y-2">
+                        {practiceAnalysis.word_breakdown.map((word, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-sm">
+                            <span className={`font-mono ${
+                              word.expected_emphasis !== 'none'
+                                ? 'font-semibold text-purple-700'
+                                : 'text-gray-600'
+                            }`}>
+                              {word.word}
+                            </span>
+                            <div className="flex items-center gap-4 text-xs text-gray-500">
+                              {word.expected_emphasis !== 'none' && (
+                                <span className={`px-1.5 py-0.5 rounded ${
+                                  word.emphasis_score >= 80 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                                }`}>
+                                  Emphasis: {word.emphasis_score}
+                                </span>
+                              )}
+                              {word.expected_pause_ms > 0 && (
+                                <span className={`px-1.5 py-0.5 rounded ${
+                                  word.pause_score >= 80 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                                }`}>
+                                  Pause: {word.pause_score}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              )}
+
+              {/* Helper text when no analysis yet */}
+              {!practiceAnalysis && !analysisError && !isAnalyzing && (
+                <p className="text-xs text-gray-400 text-center mt-4">
+                  Record yourself, then click Analyze to see how you did
+                </p>
+              )}
             </div>
           </div>
         </div>

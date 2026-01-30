@@ -233,3 +233,32 @@ export interface PracticeDialogueResponse {
   dialogue: string;
   word_count: number;
 }
+
+// Practice Analysis Types
+
+export interface WordBreakdown {
+  word: string;
+  expected_emphasis: 'none' | 'moderate' | 'strong';
+  energy_relative: number;
+  emphasis_score: number;
+  expected_pause_ms: number;
+  actual_pause_ms: number;
+  pause_score: number;
+}
+
+export interface BaselineStats {
+  energy_mean_db: number;
+  pitch_mean_hz: number;
+  duration_seconds: number;
+}
+
+export interface PracticeAnalyzeResponse {
+  overall_score: number;
+  emphasis_score: number;
+  pause_score: number;
+  pitch_score: number;
+  speed_score: number;
+  passed: boolean;
+  word_breakdown: WordBreakdown[];
+  baseline: BaselineStats;
+}
