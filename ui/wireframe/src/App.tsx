@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { PlayCircle, Mic, Upload, TrendingUp, MessageSquare, Volume2, CheckCircle, AlertCircle, Play, Pause, RotateCcw, LogOut } from 'lucide-react';
+import { PlayCircle, Mic, Upload, TrendingUp, MessageSquare, Volume2, CheckCircle, AlertCircle, Play, Pause, RotateCcw, LogOut, X, Square } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import { apiService } from './services/api';
 import {
@@ -93,6 +93,15 @@ export default function SpeechCoachApp() {
 
   // Ref to track if recording was cancelled (to prevent upload on cancel)
   const recordingCancelledRef = useRef(false);
+
+  // Practice modal state
+  const [practiceModalSegment, setPracticeModalSegment] = useState<TranscriptSegment | null>(null);
+  const [practiceRecording, setPracticeRecording] = useState<Blob | null>(null);
+  const [practiceAudioUrl, setPracticeAudioUrl] = useState<string | null>(null);
+  const [isPracticeRecording, setIsPracticeRecording] = useState(false);
+  const [isPlayingPractice, setIsPlayingPractice] = useState(false);
+  const practiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const practiceAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -356,6 +365,93 @@ export default function SpeechCoachApp() {
     setShowThemeSelection(false);
     setSelectedTheme(null);
     setGeneratedPrompt(null);
+  };
+
+  // Practice modal functions
+  const openPracticeModal = (segment: TranscriptSegment) => {
+    setPracticeModalSegment(segment);
+    setPracticeRecording(null);
+    setPracticeAudioUrl(null);
+    setIsPracticeRecording(false);
+    setIsPlayingPractice(false);
+  };
+
+  const closePracticeModal = () => {
+    // Stop any ongoing recording or playback
+    if (practiceRecorderRef.current && isPracticeRecording) {
+      practiceRecorderRef.current.stop();
+    }
+    if (practiceAudioRef.current) {
+      practiceAudioRef.current.pause();
+    }
+    // Revoke the audio URL to free memory
+    if (practiceAudioUrl) {
+      URL.revokeObjectURL(practiceAudioUrl);
+    }
+    setPracticeModalSegment(null);
+    setPracticeRecording(null);
+    setPracticeAudioUrl(null);
+    setIsPracticeRecording(false);
+    setIsPlayingPractice(false);
+  };
+
+  const startPracticeRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const audioChunks: BlobPart[] = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(track => track.stop());
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        setPracticeRecording(audioBlob);
+        const url = URL.createObjectURL(audioBlob);
+        setPracticeAudioUrl(url);
+      };
+
+      practiceRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setIsPracticeRecording(true);
+    } catch (error) {
+      console.error('Microphone access denied:', error);
+      alert('Please allow microphone access to record');
+    }
+  };
+
+  const stopPracticeRecording = () => {
+    if (practiceRecorderRef.current) {
+      practiceRecorderRef.current.stop();
+      setIsPracticeRecording(false);
+    }
+  };
+
+  const playPracticeRecording = () => {
+    if (!practiceAudioUrl) return;
+
+    if (practiceAudioRef.current) {
+      practiceAudioRef.current.pause();
+    }
+
+    const audio = new Audio(practiceAudioUrl);
+    practiceAudioRef.current = audio;
+
+    audio.onplay = () => setIsPlayingPractice(true);
+    audio.onended = () => setIsPlayingPractice(false);
+    audio.onerror = () => setIsPlayingPractice(false);
+
+    audio.play();
+  };
+
+  const stopPracticePlayback = () => {
+    if (practiceAudioRef.current) {
+      practiceAudioRef.current.pause();
+      practiceAudioRef.current.currentTime = 0;
+      setIsPlayingPractice(false);
+    }
   };
 
   // Login screen
@@ -646,11 +742,15 @@ export default function SpeechCoachApp() {
               </button>
 
               <button
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-gray-50 text-gray-600 hover:bg-gray-100"
-                title="Compare side by side"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openPracticeModal(segment);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-purple-50 text-purple-700 hover:bg-purple-100"
+                title="Practice this segment"
               >
                 <RotateCcw className="w-4 h-4" />
-                Compare
+                Practice
               </button>
             </div>
           </div>
@@ -1491,6 +1591,136 @@ export default function SpeechCoachApp() {
         {activeView === 'upload' && <UploadView />}
         {activeView === 'analysis' && <AnalysisView />}
       </div>
+
+      {/* Practice Modal */}
+      {practiceModalSegment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Practice This Segment</h3>
+                <p className="text-sm text-gray-500">Read the improved version aloud and record yourself</p>
+              </div>
+              <button
+                onClick={closePracticeModal}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="px-6 py-6">
+              {/* Improved version text */}
+              <div className="mb-6">
+                <div className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-medium">
+                  Improved Version to Practice
+                </div>
+                <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-lg p-4">
+                  <p className="text-gray-800 leading-relaxed text-lg">
+                    {(() => {
+                      const parsed = parseSSML(practiceModalSegment.improved_ssml || '');
+                      return parsed.parts.map((part, idx) => {
+                        if (part.emphasis === 'none') {
+                          return <span key={idx}>{part.text}</span>;
+                        }
+                        const emphasisClass = part.emphasis === 'strong'
+                          ? 'bg-green-200 text-green-900 font-semibold px-0.5 rounded'
+                          : 'bg-green-100 text-green-800 px-0.5 rounded';
+                        return <span key={idx} className={emphasisClass}>{part.text}</span>;
+                      });
+                    })()}
+                  </p>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  <span className="inline-block bg-green-100 text-green-800 px-1 rounded mr-1">Highlighted words</span>
+                  should be emphasized when speaking
+                </p>
+              </div>
+
+              {/* Recording indicator */}
+              {isPracticeRecording && (
+                <div className="mb-4 flex items-center justify-center gap-3 py-4 bg-red-50 rounded-lg border border-red-200">
+                  <div className="relative">
+                    <div className="w-4 h-4 bg-red-600 rounded-full animate-pulse"></div>
+                    <div className="absolute inset-0 w-4 h-4 bg-red-600 rounded-full animate-ping opacity-50"></div>
+                  </div>
+                  <span className="text-red-700 font-medium">Recording...</span>
+                </div>
+              )}
+
+              {/* Recorded audio indicator */}
+              {practiceRecording && !isPracticeRecording && (
+                <div className="mb-4 flex items-center gap-2 py-3 px-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <CheckCircle className="w-5 h-5 text-blue-600" />
+                  <span className="text-blue-700 text-sm">Recording saved! Click Play to listen or Record to try again.</span>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex items-center justify-center gap-4">
+                {/* Record button */}
+                {!isPracticeRecording ? (
+                  <button
+                    onClick={startPracticeRecording}
+                    className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+                  >
+                    <Mic className="w-5 h-5" />
+                    Record
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopPracticeRecording}
+                    className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium"
+                  >
+                    <Square className="w-5 h-5" />
+                    Stop
+                  </button>
+                )}
+
+                {/* Play button */}
+                {!isPlayingPractice ? (
+                  <button
+                    onClick={playPracticeRecording}
+                    disabled={!practiceAudioUrl || isPracticeRecording}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
+                      practiceAudioUrl && !isPracticeRecording
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    <Play className="w-5 h-5" />
+                    Play
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopPracticePlayback}
+                    className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                  >
+                    <Pause className="w-5 h-5" />
+                    Stop
+                  </button>
+                )}
+
+                {/* Analyze button (unimplemented) */}
+                <button
+                  disabled
+                  className="flex items-center gap-2 px-6 py-3 bg-gray-200 text-gray-400 rounded-lg cursor-not-allowed font-medium"
+                  title="Coming soon"
+                >
+                  <TrendingUp className="w-5 h-5" />
+                  Analyze
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-400 text-center mt-4">
+                Analyze feature coming soon - compare your recording with the improved version
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
