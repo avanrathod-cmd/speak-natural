@@ -71,6 +71,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from api.sales_service import sales_router
+app.include_router(sales_router, prefix="/sales")
+
 print(f"Starting Speak Natural API server on port {os.getenv('PORT', '8080')}")
 
 # Initialize services

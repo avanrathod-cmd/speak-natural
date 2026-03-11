@@ -109,6 +109,50 @@ class PracticeDialogueResponse(BaseModel):
     """Response model for a practice dialogue."""
     theme_id: str = Field(..., description="Theme identifier")
     theme_name: str = Field(..., description="Theme display name")
-    dialogue: str = Field(..., description="Dialogue text with **bold** markers for emphasis")
+    dialogue: str = Field(
+        ..., description="Dialogue text with **bold** markers for emphasis"
+    )
     word_count: int = Field(..., description="Approximate word count")
+
+
+# ---------------------------------------------------------------------------
+# Sales Analyzer models
+# ---------------------------------------------------------------------------
+
+class ProductCreateRequest(BaseModel):
+    """Request model for creating a product."""
+    name: str
+    description: Optional[str] = None
+    customer_profile: Optional[str] = None
+    talking_points: Optional[str] = None
+
+
+class ProductResponse(BaseModel):
+    """Response model for a product."""
+    id: str
+    name: str
+    description: Optional[str] = None
+    customer_profile: Optional[str] = None
+    talking_points: Optional[str] = None
+    script_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class ScriptResponse(BaseModel):
+    """Response model for a generated sales script."""
+    id: str
+    product_id: Optional[str] = None
+    title: str
+    opening: str
+    discovery_questions: List[str]
+    value_propositions: List[str]
+    objection_handlers: Dict[str, str]
+    closing: str
+    key_phrases: List[str]
+    created_at: Optional[datetime] = None
+
+
+class RegenerateScriptRequest(BaseModel):
+    """Request model for regenerating a script."""
+    product_id: str
 

@@ -12,30 +12,26 @@ dependencies = [
     "elevenlabs>=1.0.0",
     "pydub>=0.25.1",
     "python-dotenv>=1.0.0",
-
     # FastAPI and server dependencies
     "fastapi>=0.104.1",
     "uvicorn[standard]>=0.24.0",
     "pydantic>=2.5.0",
     "python-multipart>=0.0.6",
-
     # Audio processing
     "librosa>=0.10.1",
     "soundfile>=0.12.1",
-
     # Speech analysis
     "praat-parselmouth>=0.4.3",
     "numpy>=1.24.3",
     "scipy>=1.11.3",
-
     # Visualization
     "matplotlib>=3.8.0",
-
     # AI/ML
     "anthropic>=0.7.0",
-
     # Authentication
     "supabase>=2.0.0",
     "pyjwt[crypto]>=2.8.0",
     "cryptography>=41.0.0",
+    "psycopg2-binary>=2.9.11",
+    "google-genai>=1.66.0",
 ]
