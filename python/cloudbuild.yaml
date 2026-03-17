@@ -32,14 +32,14 @@ steps:
       - '--region=$_REGION'
       - '--platform=managed'
       - '--allow-unauthenticated'
-      - '--memory=4Gi'
-      - '--cpu=2'
+      - '--memory=1Gi'
+      - '--cpu=1'
       - '--timeout=3600'
-      - '--min-instances=0'
-      - '--max-instances=10'
+      - '--min-instances=1'
+      - '--max-instances=5'
       - '--cpu-throttling'
-      - '--set-env-vars=AWS_DEFAULT_REGION=ap-south-1,S3_BUCKET=speach-analyzer,STORAGE_DIR=/tmp/speak-right,ALLOWED_ORIGINS=*'
-      - '--set-secrets=AWS_ACCESS_KEY_ID=aws-access-key:latest,AWS_SECRET_ACCESS_KEY=aws-secret-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,OPENAI_API_KEY=openai-api-key:latest,ELEVENLABS_API_KEY=elevenlabs-api-key:latest,ELEVENLABS_VOICE_ID=elevenlabs-voice-id:latest,SUPABASE_URL=supabase-url:latest,SUPABASE_ANON_KEY=supabase-anon-key:latest,SUPABASE_JWT_SECRET=supabase-jwt-secret:latest,SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,DATABASE_URL=database-url:latest'
+      - '--set-env-vars=AWS_DEFAULT_REGION=ap-south-1,S3_BUCKET_NAME=speach-analyzer,ALLOWED_ORIGINS=$_ALLOWED_ORIGINS'
+      - '--set-secrets=AWS_ACCESS_KEY_ID=aws-access-key:latest,AWS_SECRET_ACCESS_KEY=aws-secret-key:latest,GEMINI_API_KEY=gemini-api-key:latest,SUPABASE_URL=supabase-url:latest,SUPABASE_ANON_KEY=supabase-anon-key:latest,SUPABASE_JWT_SECRET=supabase-jwt-secret:latest,SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,DATABASE_URL=database-url:latest'
 
 images:
   - 'gcr.io/$PROJECT_ID/speakright-api:$BUILD_ID'
@@ -47,6 +47,7 @@ images:
 
 substitutions:
   _REGION: 'us-central1'
+  _ALLOWED_ORIGINS: '*'
 
 options:
   logging: CLOUD_LOGGING_ONLY
