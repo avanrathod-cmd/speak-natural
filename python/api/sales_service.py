@@ -28,8 +28,10 @@ from fastapi import (
     Query,
     UploadFile,
 )
+from fastapi.responses import RedirectResponse
 
 from api.auth import get_current_user
+from utils.aws_utils import s3_client
 from api.database import SalesDatabaseService
 from api.models import (
     CallAnalysisResponse,
@@ -54,6 +56,7 @@ _script_gen = ScriptGeneratorService()
 _processor = SalesCallProcessorService()
 
 _UPLOAD_DIR = "/tmp/speak-right-sales"
+_BUCKET = os.getenv("S3_BUCKET_NAME", "speach-analyzer")
 
 
 @sales_router.post("/products", response_model=ProductResponse)
@@ -339,6 +342,37 @@ async def get_call_analysis(
         ),
         created_at=row.get("created_at"),
     )
+
+
+@sales_router.get("/calls/{call_id}/audio")
+async def get_call_audio(
+    call_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Return a pre-signed S3 URL for the original call audio (1-hour expiry)."""
+    row = _db.get_call_analysis(call_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Call not found")
+
+    audio_filename = row.get("audio_filename")
+    if not audio_filename:
+        raise HTTPException(
+            status_code=404, detail="Audio file not found for this call"
+        )
+
+    s3_key = f"sales/{call_id}/audio/{audio_filename}"
+    try:
+        url = s3_client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": _BUCKET, "Key": s3_key},
+            ExpiresIn=3600,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Could not generate audio URL: {e}"
+        )
+
+    return RedirectResponse(url=url)
 
 
 @sales_router.get(

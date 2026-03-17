@@ -18,36 +18,6 @@ class ApiService {
     return headers;
   }
 
-  // ── Coaching ────────────────────────────────────────────────────────────
-
-  async uploadAudio(audioFile: File, token: string): Promise<any> {
-    const formData = new FormData();
-    formData.append('audio_file', audioFile);
-    const response = await fetch(`${API_URL}/upload-audio`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
-      body: formData,
-    });
-    if (!response.ok) {
-      throw new Error(`Upload failed: ${response.statusText}`);
-    }
-    return response.json();
-  }
-
-  async getFullOriginalAudio(
-    coachingId: string,
-    token: string,
-  ): Promise<Blob> {
-    const response = await fetch(
-      `${API_URL}/coaching/${coachingId}/full_original`,
-      { headers: { 'Authorization': `Bearer ${token}` } },
-    );
-    if (!response.ok) {
-      throw new Error(`Failed to get full original audio: ${response.statusText}`);
-    }
-    return response.blob();
-  }
-
   // ── Sales Analyzer ──────────────────────────────────────────────────────
 
   async uploadSalesCall(
@@ -103,6 +73,21 @@ class ApiService {
       throw new Error(`List calls failed: ${response.statusText}`);
     }
     return response.json();
+  }
+
+  async getCallAudio(callId: string, token: string): Promise<string> {
+    // Returns the pre-signed S3 URL after following the redirect
+    const response = await fetch(
+      `${API_URL}/sales/calls/${callId}/audio`,
+      {
+        headers: await this.getHeaders(token),
+        redirect: 'follow',
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to get call audio: ${response.statusText}`);
+    }
+    return response.url;
   }
 }
 
