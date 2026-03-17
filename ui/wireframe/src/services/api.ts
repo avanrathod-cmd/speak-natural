@@ -9,6 +9,10 @@ import {
   SessionsResponse,
   PracticeThemesResponse,
   PracticeDialogueResponse,
+  SalesCallUploadResponse,
+  SalesCallStatus,
+  SalesCallAnalysisResponse,
+  SalesCallListItem,
 } from '../types';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -206,6 +210,61 @@ class ApiService {
       throw new Error(`Failed to get practice dialogue: ${response.statusText}`);
     }
 
+    return response.json();
+  }
+
+  async uploadSalesCall(
+    audioFile: File,
+    token: string,
+  ): Promise<SalesCallUploadResponse> {
+    const formData = new FormData();
+    formData.append('audio_file', audioFile);
+    const response = await fetch(`${API_URL}/sales/calls/upload`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: formData,
+    });
+    if (!response.ok) {
+      throw new Error(`Upload failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async getSalesCallStatus(
+    callId: string,
+    token: string,
+  ): Promise<SalesCallStatus> {
+    const response = await fetch(
+      `${API_URL}/sales/calls/${callId}/status`,
+      { headers: await this.getHeaders(token) },
+    );
+    if (!response.ok) {
+      throw new Error(`Status check failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async getSalesCallAnalysis(
+    callId: string,
+    token: string,
+  ): Promise<SalesCallAnalysisResponse> {
+    const response = await fetch(
+      `${API_URL}/sales/calls/${callId}/analysis`,
+      { headers: await this.getHeaders(token) },
+    );
+    if (!response.ok) {
+      throw new Error(`Analysis fetch failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async listSalesCalls(token: string): Promise<SalesCallListItem[]> {
+    const response = await fetch(`${API_URL}/sales/calls`, {
+      headers: await this.getHeaders(token),
+    });
+    if (!response.ok) {
+      throw new Error(`List calls failed: ${response.statusText}`);
+    }
     return response.json();
   }
 

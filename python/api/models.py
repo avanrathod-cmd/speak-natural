@@ -156,3 +156,48 @@ class RegenerateScriptRequest(BaseModel):
     """Request model for regenerating a script."""
     product_id: str
 
+
+class SalesCallUploadResponse(BaseModel):
+    """Response model for a sales call upload."""
+    call_id: str
+    status: str  # "pending"
+
+
+class CallStatusResponse(BaseModel):
+    """Response model for sales call processing status."""
+    call_id: str
+    status: str  # pending/processing/transcribed/completed/failed
+    error: Optional[str] = None
+
+
+class CallAnalysisResponse(BaseModel):
+    """Response model for a completed sales call analysis."""
+    call_id: str
+    status: str
+    error: Optional[str] = None
+    overall_rep_score: Optional[int] = None
+    communication_score: Optional[int] = None
+    objection_handling_score: Optional[int] = None
+    closing_score: Optional[int] = None
+    lead_score: Optional[int] = None
+    engagement_level: Optional[str] = None
+    customer_sentiment: Optional[str] = None
+    rep_analysis: Optional[Dict] = None
+    customer_analysis: Optional[Dict] = None
+    full_transcript: Optional[List] = None
+    created_at: Optional[datetime] = None
+
+
+class CallListItemResponse(BaseModel):
+    """Response model for a sales call in list view."""
+    call_id: str
+    status: str
+    error: Optional[str] = None
+    audio_filename: Optional[str] = None
+    created_at: Optional[datetime] = None
+    duration_seconds: Optional[float] = None
+    overall_rep_score: Optional[int] = None
+    lead_score: Optional[int] = None
+    engagement_level: Optional[str] = None
+    customer_sentiment: Optional[str] = None
+

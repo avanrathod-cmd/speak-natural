@@ -5,8 +5,8 @@ Handles coaching session metadata storage.
 
 import json
 import os
-from typing import Dict, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -607,6 +607,251 @@ class SalesDatabaseService(DatabaseService):
 
         query = query.order(order_by, desc=order_desc)
         return query.execute().data or []
+
+    def create_sales_call(
+        self,
+        user_id: str,
+        call_id: str,
+        audio_filename: str,
+    ) -> Dict:
+        """
+        Insert a new sales_calls row with status "pending".
+
+        Args:
+            user_id: UUID of the uploading user (rep_id)
+            call_id: Unique call identifier (e.g. "call_abc123")
+            audio_filename: Original uploaded filename
+
+        Returns:
+            Created sales_call row
+        """
+        org_id = self._ensure_org(user_id)
+
+        result = (
+            self.client.table("sales_calls")
+            .insert({
+                "org_id": org_id,
+                "rep_id": user_id,
+                "call_id": call_id,
+                "audio_filename": audio_filename,
+                "status": "pending",
+            })
+            .execute()
+        )
+
+        if not result.data:
+            raise Exception("Failed to create sales call")
+
+        return result.data[0]
+
+    def update_sales_call_status(
+        self,
+        call_id: str,
+        status: str,
+        error: Optional[str] = None,
+    ) -> Dict:
+        """
+        Update the status of a sales_calls row.
+
+        Sets completed_at when status is "completed".
+
+        Args:
+            call_id: Unique call identifier
+            status: New status (pending/processing/transcribed/
+                    completed/failed)
+            error: Optional error message for failed status
+
+        Returns:
+            Updated sales_call row
+        """
+        data: Dict = {"status": status}
+        if error:
+            data["error"] = error
+        if status == "completed":
+            data["completed_at"] = (
+                datetime.now(timezone.utc).isoformat()
+            )
+
+        result = (
+            self.client.table("sales_calls")
+            .update(data)
+            .eq("call_id", call_id)
+            .execute()
+        )
+
+        if not result.data:
+            raise Exception(
+                f"Failed to update status for call {call_id}"
+            )
+
+        return result.data[0]
+
+    def save_call_analysis(
+        self,
+        call_id: str,
+        speaker_map: Dict,
+        analysis: Dict,
+        full_transcript: List[Dict],
+    ) -> Dict:
+        """
+        Insert a call_analyses row from the analyzer output.
+
+        Splits the flat analysis dict into the DB column layout:
+        - Direct score columns (overall_rep_score, lead_score, etc.)
+        - rep_analysis JSONB (strengths, improvements,
+          coaching_tips, key_moments)
+        - customer_analysis JSONB (customer_interests,
+          objections_raised, buying_signals, suggested_next_steps)
+
+        Args:
+            call_id: Unique call identifier
+            speaker_map: Output of identify_speakers()
+            analysis: Output of analyze_call()
+            full_transcript: Output of extract_speaker_turns()
+
+        Returns:
+            Created call_analyses row
+        """
+        call_row = (
+            self.client.table("sales_calls")
+            .select("org_id")
+            .eq("call_id", call_id)
+            .execute()
+        )
+        if not call_row.data:
+            raise Exception(
+                f"sales_calls row not found for call {call_id}"
+            )
+        org_id = call_row.data[0]["org_id"]
+
+        rep_analysis = {
+            "strengths": analysis.get("strengths", []),
+            "improvements": analysis.get("improvements", []),
+            "coaching_tips": analysis.get("coaching_tips", []),
+            "key_moments": analysis.get("key_moments", []),
+        }
+        customer_analysis = {
+            "customer_interests": analysis.get(
+                "customer_interests", []
+            ),
+            "objections_raised": analysis.get(
+                "objections_raised", []
+            ),
+            "buying_signals": analysis.get("buying_signals", []),
+            "suggested_next_steps": analysis.get(
+                "suggested_next_steps", []
+            ),
+        }
+
+        data = {
+            "call_id": call_id,
+            "org_id": org_id,
+            "salesperson_speaker_label": speaker_map.get(
+                "salesperson_label"
+            ),
+            "customer_speaker_labels": speaker_map.get(
+                "customer_labels", []
+            ),
+            "overall_rep_score": analysis.get("overall_rep_score"),
+            "communication_score": analysis.get(
+                "communication_score"
+            ),
+            "objection_handling_score": analysis.get(
+                "objection_handling_score"
+            ),
+            "closing_score": analysis.get("closing_score"),
+            "rep_analysis": json.dumps(rep_analysis),
+            "lead_score": analysis.get("lead_score"),
+            "engagement_level": analysis.get("engagement_level"),
+            "customer_sentiment": analysis.get("customer_sentiment"),
+            "customer_analysis": json.dumps(customer_analysis),
+            "full_transcript": json.dumps(full_transcript),
+        }
+
+        result = (
+            self.client.table("call_analyses").insert(data).execute()
+        )
+
+        if not result.data:
+            raise Exception("Failed to save call analysis")
+
+        return result.data[0]
+
+    def get_call_analysis(self, call_id: str) -> Optional[Dict]:
+        """
+        Fetch a call's status and analysis, merged into one dict.
+
+        Queries sales_calls for status + call_analyses for results.
+        Returns None if the call does not exist.
+
+        Args:
+            call_id: Unique call identifier
+
+        Returns:
+            Merged dict or None
+        """
+        call_result = (
+            self.client.table("sales_calls")
+            .select(
+                "call_id, status, error, audio_filename, created_at"
+            )
+            .eq("call_id", call_id)
+            .execute()
+        )
+
+        if not call_result.data:
+            return None
+
+        row = call_result.data[0]
+
+        analysis_result = (
+            self.client.table("call_analyses")
+            .select("*")
+            .eq("call_id", call_id)
+            .execute()
+        )
+
+        if analysis_result.data:
+            row.update(analysis_result.data[0])
+
+        return row
+
+    def list_sales_calls(
+        self,
+        user_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Dict]:
+        """
+        List sales calls for a user, newest first.
+
+        Args:
+            user_id: UUID of the user
+            limit: Max rows to return (default 50)
+            offset: Pagination offset (default 0)
+
+        Returns:
+            List of sales_calls rows
+        """
+        result = (
+            self.client.table("sales_calls")
+            .select(
+                "*, call_analyses(overall_rep_score, lead_score,"
+                " engagement_level, customer_sentiment)"
+            )
+            .eq("rep_id", user_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .offset(offset)
+            .execute()
+        )
+        rows = []
+        for row in (result.data or []):
+            analyses = row.pop("call_analyses", None) or []
+            if analyses:
+                row.update(analyses[0])
+            rows.append(row)
+        return rows
 
     # -----------------------------------------------------------------------
     # Private helpers
