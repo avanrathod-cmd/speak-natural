@@ -1,6 +1,6 @@
 /** Root component — manages navigation state and renders the active view. */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Phone, Plus, ArrowLeft } from 'lucide-react';
 import { CallDashboard } from './components/CallDashboard';
 import { UploadView } from './components/UploadView';
@@ -46,11 +46,7 @@ export default function SalesCallAnalyzer() {
   const [analysis, setAnalysis] = useState<SalesCallAnalysis | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    loadCalls();
-  }, [loadCalls]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function loadCalls() {
+  const loadCalls = useCallback(async () => {
     const token = await getAccessToken();
     if (!token) return;
     try {
@@ -59,7 +55,11 @@ export default function SalesCallAnalyzer() {
     } catch (e) {
       console.error('Failed to load calls:', e);
     }
-  }
+  }, [getAccessToken]);
+
+  useEffect(() => {
+    loadCalls();
+  }, [loadCalls]);
 
   async function openCall(call: SalesCallListItem) {
     setSelectedCall(call);
