@@ -38,7 +38,8 @@ function flattenAnalysis(r: SalesCallAnalysisResponse): SalesCallAnalysis {
 }
 
 export default function SalesCallAnalyzer() {
-  const { getAccessToken } = useAuth();
+  const { getAccessToken, user, loading, signInWithGoogle, signOut } = useAuth();
+
   const [stage, setStage] = useState<Stage>('dashboard');
   const [step, setStep] = useState(0);
   const [calls, setCalls] = useState<SalesCallListItem[]>([]);
@@ -58,8 +59,36 @@ export default function SalesCallAnalyzer() {
   }, [getAccessToken]);
 
   useEffect(() => {
-    loadCalls();
-  }, [loadCalls]);
+    if (user) loadCalls();
+  }, [user, loadCalls]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Loading…</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white rounded-2xl p-12 shadow-sm border border-gray-100 text-center max-w-sm w-full">
+          <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Phone className="w-6 h-6 text-white" />
+          </div>
+          <h1 className="text-xl font-semibold text-gray-900 mb-1">SpeakRight</h1>
+          <p className="text-sm text-gray-500 mb-8">Sales Call Analyzer</p>
+          <button
+            onClick={signInWithGoogle}
+            className="w-full bg-blue-600 text-white py-2.5 px-4 rounded-lg hover:bg-blue-700 font-medium text-sm"
+          >
+            Sign in with Google
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   async function openCall(call: SalesCallListItem) {
     setSelectedCall(call);
@@ -133,6 +162,12 @@ export default function SalesCallAnalyzer() {
           <p className="text-xs text-gray-500 mt-0.5">Sales Call Analyzer</p>
         </div>
         <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={signOut}
+            className="text-xs text-gray-400 hover:text-gray-600"
+          >
+            Sign out
+          </button>
           {(stage === 'complete' || stage === 'idle') && (
             <button
               onClick={goToDashboard}
