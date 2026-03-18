@@ -63,8 +63,6 @@ venv.bak/
 *~
 .DS_Store
 
-# uv
-uv.lock
 
 # Project specific - output files
 *.wav

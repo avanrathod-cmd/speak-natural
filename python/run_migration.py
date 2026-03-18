@@ -50,30 +50,15 @@ def run_migration(migration_file: str):
 
         print("✓ Migration completed successfully!")
 
-        # Verify table was created
+        # Verify tables exist
         cur.execute("""
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema = 'public'
-            AND table_name = 'coaching_sessions'
+            ORDER BY table_name
         """)
-
-        result = cur.fetchone()
-        if result:
-            print(f"✓ Table 'coaching_sessions' exists")
-
-            # Show table structure
-            cur.execute("""
-                SELECT column_name, data_type, is_nullable
-                FROM information_schema.columns
-                WHERE table_name = 'coaching_sessions'
-                ORDER BY ordinal_position
-            """)
-
-            columns = cur.fetchall()
-            print("\nTable structure:")
-            for col in columns:
-                print(f"  - {col[0]}: {col[1]} (nullable: {col[2]})")
+        tables = [row[0] for row in cur.fetchall()]
+        print(f"\nTables in public schema: {', '.join(tables)}")
 
         cur.close()
         conn.close()
@@ -84,5 +69,5 @@ def run_migration(migration_file: str):
 
 
 if __name__ == "__main__":
-    # Run the first migration
-    run_migration("001_create_coaching_sessions.sql")
+    migration = sys.argv[1] if len(sys.argv) > 1 else "001_create_coaching_sessions.sql"
+    run_migration(migration)
