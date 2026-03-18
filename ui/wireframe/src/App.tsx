@@ -48,7 +48,7 @@ export default function SalesCallAnalyzer() {
 
   useEffect(() => {
     loadCalls();
-  }, []);
+  }, [loadCalls]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadCalls() {
     const token = await getAccessToken();
