@@ -79,7 +79,7 @@ export default function SalesCallAnalyzer() {
     setStage('processing');
     setStep(0);
     const token = await getAccessToken();
-    if (!token) return;
+    if (!token) { setStage('dashboard'); return; }
 
     try {
       const { call_id } = await apiService.uploadSalesCall(file, token);
