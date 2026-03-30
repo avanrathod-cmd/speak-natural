@@ -17,6 +17,7 @@ current_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(current_dir))
 
 from api.sales_service import sales_router
+from api.guest_service import guest_router
 
 app = FastAPI(
     title="SpeakRight Sales Analyzer API",
@@ -39,6 +40,7 @@ app.add_middleware(
 )
 
 app.include_router(sales_router, prefix="/sales")
+app.include_router(guest_router, prefix="/sales")
 
 
 @app.get("/", tags=["Health"])

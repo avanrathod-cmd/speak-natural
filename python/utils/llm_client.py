@@ -115,6 +115,7 @@ def _call_gemini(prompt: str, system: str, json_mode: bool) -> Any:
         config_kwargs["response_mime_type"] = "application/json"
 
     def _make_request():
+        print(f"model = {_LLM_MODEL}")
         return client.models.generate_content(
             model=_LLM_MODEL,
             contents=prompt,

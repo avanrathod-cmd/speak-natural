@@ -28,7 +28,6 @@ from fastapi import (
     Query,
     UploadFile,
 )
-from fastapi.responses import RedirectResponse
 
 from api.auth import get_current_user
 from utils.aws_utils import s3_client
@@ -372,7 +371,7 @@ async def get_call_audio(
             status_code=500, detail=f"Could not generate audio URL: {e}"
         )
 
-    return RedirectResponse(url=url)
+    return {"url": url}
 
 
 @sales_router.get(

@@ -3,7 +3,7 @@
  * and Customer / Lead tab.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CheckCircle,
   TrendingUp,
@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Clock,
   User,
+  Volume2,
 } from 'lucide-react';
 import { SalesCallAnalysis, SalesCallListItem } from '../types';
 import {
@@ -21,6 +22,8 @@ import {
   MOMENT_COLORS,
   scoreBg,
 } from './ui';
+import { apiService } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 type Tab = 'rep' | 'customer';
 
@@ -224,6 +227,28 @@ export function AnalysisView({
   selectedCall: SalesCallListItem | null;
 }) {
   const [tab, setTab] = useState<Tab>('rep');
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState(false);
+  const { getAccessToken } = useAuth();
+
+  useEffect(() => {
+    if (!selectedCall?.call_id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) return;
+        const url = await apiService.getCallAudio(
+          selectedCall.call_id,
+          token,
+        );
+        if (!cancelled) setAudioUrl(url);
+      } catch {
+        if (!cancelled) setAudioError(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedCall?.call_id, getAccessToken]);
 
   return (
     <div className="space-y-6">
@@ -260,6 +285,18 @@ export function AnalysisView({
             <Badge value={analysis.customer_sentiment} map={SENTIMENT_COLORS} />
           </div>
         </div>
+      </div>
+
+      {/* Audio player */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-center gap-3">
+        <Volume2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
+        {audioError ? (
+          <div className="text-sm text-red-400">Could not load audio.</div>
+        ) : audioUrl ? (
+          <audio controls src={audioUrl} className="w-full h-8" />
+        ) : (
+          <div className="text-sm text-gray-400">Loading audio…</div>
+        )}
       </div>
 
       {/* Tab switcher */}

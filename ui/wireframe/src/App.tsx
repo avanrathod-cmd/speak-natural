@@ -1,6 +1,14 @@
 /** Root component — manages navigation state and renders the active view. */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  Routes,
+  Route,
+  Navigate,
+  useNavigate,
+  useLocation,
+  useParams,
+} from 'react-router-dom';
 import { Phone, Plus, ArrowLeft } from 'lucide-react';
 import { CallDashboard } from './components/CallDashboard';
 import { UploadView } from './components/UploadView';
@@ -8,14 +16,14 @@ import { ProcessingView } from './components/ProcessingView';
 import { AnalysisView } from './components/AnalysisView';
 import { useAuth } from './contexts/AuthContext';
 import { apiService } from './services/api';
+import { LandingPage } from './pages/LandingPage';
+import { GuestFlowPage } from './pages/GuestFlowPage';
 import {
   SalesCallListItem,
   SalesCallAnalysis,
   SalesCallAnalysisResponse,
 } from './types';
 import './App.css';
-
-type Stage = 'dashboard' | 'idle' | 'processing' | 'complete';
 
 function flattenAnalysis(r: SalesCallAnalysisResponse): SalesCallAnalysis {
   return {
@@ -24,8 +32,12 @@ function flattenAnalysis(r: SalesCallAnalysisResponse): SalesCallAnalysis {
     objection_handling_score: r.objection_handling_score ?? 0,
     closing_score: r.closing_score ?? 0,
     lead_score: r.lead_score ?? 0,
-    engagement_level: (r.engagement_level as SalesCallAnalysis['engagement_level']) ?? 'medium',
-    customer_sentiment: (r.customer_sentiment as SalesCallAnalysis['customer_sentiment']) ?? 'neutral',
+    engagement_level:
+      (r.engagement_level as SalesCallAnalysis['engagement_level']) ??
+      'medium',
+    customer_sentiment:
+      (r.customer_sentiment as SalesCallAnalysis['customer_sentiment']) ??
+      'neutral',
     strengths: r.rep_analysis?.strengths ?? [],
     improvements: r.rep_analysis?.improvements ?? [],
     coaching_tips: r.rep_analysis?.coaching_tips ?? [],
@@ -37,14 +49,14 @@ function flattenAnalysis(r: SalesCallAnalysisResponse): SalesCallAnalysis {
   };
 }
 
-export default function SalesCallAnalyzer() {
-  const { getAccessToken, user, loading, signInWithGoogle, signOut } = useAuth();
+export default function App() {
+  const { getAccessToken, user, loading, signOut } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const [stage, setStage] = useState<Stage>('dashboard');
-  const [step, setStep] = useState(0);
   const [calls, setCalls] = useState<SalesCallListItem[]>([]);
-  const [selectedCall, setSelectedCall] = useState<SalesCallListItem | null>(null);
-  const [analysis, setAnalysis] = useState<SalesCallAnalysis | null>(null);
+  const [step, setStep] = useState(0);
+  const [processingActive, setProcessingActive] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadCalls = useCallback(async () => {
@@ -70,45 +82,27 @@ export default function SalesCallAnalyzer() {
     );
   }
 
+  // Public routes — no auth required
   if (!user) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white rounded-2xl p-12 shadow-sm border border-gray-100 text-center max-w-sm w-full">
-          <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center mx-auto mb-4">
-            <Phone className="w-6 h-6 text-white" />
-          </div>
-          <h1 className="text-xl font-semibold text-gray-900 mb-1">SpeakRight</h1>
-          <p className="text-sm text-gray-500 mb-8">Sales Call Analyzer</p>
-          <button
-            onClick={signInWithGoogle}
-            className="w-full bg-blue-600 text-white py-2.5 px-4 rounded-lg hover:bg-blue-700 font-medium text-sm"
-          >
-            Sign in with Google
-          </button>
-        </div>
-      </div>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/try/*" element={<GuestFlowPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     );
   }
 
-  async function openCall(call: SalesCallListItem) {
-    setSelectedCall(call);
-    setAnalysis(null);
-    setStage('complete');
-    const token = await getAccessToken();
-    if (!token) return;
-    try {
-      const data = await apiService.getSalesCallAnalysis(call.call_id, token);
-      setAnalysis(flattenAnalysis(data));
-    } catch (e) {
-      console.error('Failed to load analysis:', e);
-    }
-  }
-
   async function handleFile(file: File) {
-    setStage('processing');
     setStep(0);
+    setProcessingActive(true);
+    navigate('/processing');
     const token = await getAccessToken();
-    if (!token) { setStage('dashboard'); return; }
+    if (!token) {
+      setProcessingActive(false);
+      navigate('/dashboard');
+      return;
+    }
 
     try {
       const { call_id } = await apiService.uploadSalesCall(file, token);
@@ -116,21 +110,25 @@ export default function SalesCallAnalyzer() {
 
       pollRef.current = setInterval(async () => {
         try {
-          const status = await apiService.getSalesCallStatus(call_id, token);
+          const status = await apiService.getSalesCallStatus(
+            call_id,
+            token,
+          );
           if (status.status === 'processing') {
             setStep(2);
           } else if (status.status === 'completed') {
             clearInterval(pollRef.current!);
             setStep(3);
-            const data = await apiService.getSalesCallAnalysis(call_id, token);
-            setAnalysis(flattenAnalysis(data));
-            setSelectedCall({ call_id, status: 'completed' });
             await loadCalls();
-            setTimeout(() => setStage('complete'), 400);
+            setTimeout(() => {
+              setProcessingActive(false);
+              navigate(`/calls/${call_id}`);
+            }, 400);
           } else if (status.status === 'failed') {
             clearInterval(pollRef.current!);
             console.error('Call processing failed:', status.error);
-            setStage('dashboard');
+            setProcessingActive(false);
+            navigate('/dashboard');
           }
         } catch (e) {
           console.error('Polling error:', e);
@@ -138,16 +136,21 @@ export default function SalesCallAnalyzer() {
       }, 3000);
     } catch (e) {
       console.error('Upload failed:', e);
-      setStage('dashboard');
+      setProcessingActive(false);
+      navigate('/dashboard');
     }
   }
 
   function goToDashboard() {
     if (pollRef.current) clearInterval(pollRef.current);
-    setStage('dashboard');
-    setSelectedCall(null);
-    setAnalysis(null);
+    setProcessingActive(false);
+    navigate('/dashboard');
   }
+
+  const onCallsPage = location.pathname === '/dashboard';
+  const showBack =
+    location.pathname === '/upload' ||
+    location.pathname.startsWith('/calls/');
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -168,7 +171,7 @@ export default function SalesCallAnalyzer() {
           >
             Sign out
           </button>
-          {(stage === 'complete' || stage === 'idle') && (
+          {showBack && (
             <button
               onClick={goToDashboard}
               className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700"
@@ -177,9 +180,9 @@ export default function SalesCallAnalyzer() {
               Dashboard
             </button>
           )}
-          {stage === 'dashboard' && (
+          {onCallsPage && (
             <button
-              onClick={() => setStage('idle')}
+              onClick={() => navigate('/upload')}
               className="flex items-center gap-1.5 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium"
             >
               <Plus className="w-4 h-4" />
@@ -190,27 +193,86 @@ export default function SalesCallAnalyzer() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-8">
-        {stage === 'dashboard' && (
-          <CallDashboard calls={calls} onOpenCall={openCall} />
-        )}
-        {stage === 'idle' && (
-          <UploadView onFile={handleFile} />
-        )}
-        {stage === 'processing' && (
-          <ProcessingView step={step} />
-        )}
-        {stage === 'complete' && analysis && (
-          <AnalysisView
-            analysis={analysis}
-            selectedCall={selectedCall}
+        <Routes>
+          <Route
+            path="/"
+            element={<Navigate to="/dashboard" replace />}
           />
-        )}
-        {stage === 'complete' && !analysis && (
-          <div className="bg-white rounded-2xl p-12 text-center shadow-sm border border-gray-100">
-            <p className="text-gray-400 text-sm">Loading analysis…</p>
-          </div>
-        )}
+          <Route
+            path="/dashboard"
+            element={
+              <CallDashboard
+                calls={calls}
+                onOpenCall={(c) => navigate(`/calls/${c.call_id}`)}
+              />
+            }
+          />
+          <Route
+            path="/upload"
+            element={<UploadView onFile={handleFile} />}
+          />
+          <Route
+            path="/processing"
+            element={
+              processingActive ? (
+                <ProcessingView step={step} />
+              ) : (
+                <Navigate to="/dashboard" replace />
+              )
+            }
+          />
+          <Route
+            path="/calls/:callId"
+            element={
+              <AnalysisRoute
+                calls={calls}
+                getAccessToken={getAccessToken}
+              />
+            }
+          />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
       </main>
     </div>
   );
+}
+
+function AnalysisRoute({
+  calls,
+  getAccessToken,
+}: {
+  calls: SalesCallListItem[];
+  getAccessToken: () => Promise<string | null>;
+}) {
+  const { callId } = useParams<{ callId: string }>();
+  const [analysis, setAnalysis] = useState<SalesCallAnalysis | null>(null);
+
+  const selectedCall =
+    calls.find((c) => c.call_id === callId) ??
+    (callId ? { call_id: callId, status: 'completed' as const } : null);
+
+  useEffect(() => {
+    if (!callId) return;
+    setAnalysis(null);
+    (async () => {
+      const token = await getAccessToken();
+      if (!token) return;
+      try {
+        const data = await apiService.getSalesCallAnalysis(callId, token);
+        setAnalysis(flattenAnalysis(data));
+      } catch (e) {
+        console.error('Failed to load analysis:', e);
+      }
+    })();
+  }, [callId, getAccessToken]);
+
+  if (!analysis) {
+    return (
+      <div className="bg-white rounded-2xl p-12 text-center shadow-sm border border-gray-100">
+        <p className="text-gray-400 text-sm">Loading analysis…</p>
+      </div>
+    );
+  }
+
+  return <AnalysisView analysis={analysis} selectedCall={selectedCall} />;
 }

@@ -76,18 +76,64 @@ class ApiService {
   }
 
   async getCallAudio(callId: string, token: string): Promise<string> {
-    // Returns the pre-signed S3 URL after following the redirect
     const response = await fetch(
       `${API_URL}/sales/calls/${callId}/audio`,
-      {
-        headers: await this.getHeaders(token),
-        redirect: 'follow',
-      },
+      { headers: await this.getHeaders(token) },
     );
     if (!response.ok) {
       throw new Error(`Failed to get call audio: ${response.statusText}`);
     }
-    return response.url;
+    const data = await response.json();
+    return data.url;
+  }
+
+  // ── Guest Analysis ───────────────────────────────────────────────────────
+
+  async uploadGuestCall(
+    audioFile: File,
+  ): Promise<{ job_id: string; status: string }> {
+    const formData = new FormData();
+    formData.append('audio_file', audioFile);
+    const response = await fetch(
+      `${API_URL}/sales/guest/calls/upload`,
+      { method: 'POST', body: formData },
+    );
+    if (!response.ok) {
+      throw new Error(`Guest upload failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async getGuestCallStatus(
+    jobId: string,
+  ): Promise<{ job_id: string; status: string; error?: string }> {
+    const response = await fetch(
+      `${API_URL}/sales/guest/calls/${jobId}/status`,
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Guest status check failed: ${response.statusText}`,
+      );
+    }
+    return response.json();
+  }
+
+  async getGuestCallAnalysis(jobId: string): Promise<any> {
+    const response = await fetch(
+      `${API_URL}/sales/guest/calls/${jobId}/analysis`,
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Guest analysis fetch failed: ${response.statusText}`,
+      );
+    }
+    return response.json();
+  }
+
+  async deleteGuestCall(jobId: string): Promise<void> {
+    await fetch(`${API_URL}/sales/guest/calls/${jobId}`, {
+      method: 'DELETE',
+    });
   }
 }
 

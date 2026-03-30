@@ -5,26 +5,75 @@
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
-    />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
+    <meta name="description" content="Analyze any sales call in minutes with AI. Get rep performance scores, customer insights, buying signals, and actionable coaching tips. Try free — no signup required." />
+    <meta name="keywords" content="sales call analysis, AI sales coaching, sales performance analytics, conversation intelligence, sales call analytics, sales coaching software" />
 
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="SpeakRight — AI Sales Call Analyzer" />
+    <meta property="og:description" content="Upload any sales call and get instant AI analysis: rep performance scores, customer sentiment, buying signals, and coaching tips." />
+    <meta property="og:site_name" content="SpeakRight" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="SpeakRight — AI Sales Call Analyzer" />
+    <meta name="twitter:description" content="Upload any sales call and get instant AI analysis: rep performance scores, customer sentiment, buying signals, and coaching tips." />
+
+    <!-- Structured data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "SpeakNatural",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web",
+      "description": "AI-powered sales call analyzer that scores rep performance, detects customer buying signals, and generates actionable coaching tips from any audio recording.",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "featureList": [
+        "Rep performance scoring (communication, objection handling, closing)",
+        "Customer sentiment and engagement analysis",
+        "Buying signal and objection detection",
+        "Timestamped key moment identification",
+        "Actionable coaching tip generation"
+      ]
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is SpeakNatural?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "SpeakNatural is an AI-powered sales call analyzer. Upload any call recording and get instant analysis covering rep performance scores, customer sentiment, buying signals, objection patterns, and specific coaching tips."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What audio formats does SpeakNatural support?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "SpeakNatural supports MP3, WAV, M4A, and most common audio formats up to 500 MB."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How long does a sales call analysis take?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Most calls are analyzed in under two minutes depending on length. The AI transcribes the audio and produces a full analysis in a single pass."
+          }
+        }
+      ]
+    }
+    </script>
+
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <title>SpeakNatural — AI Sales Call Analyzer</title>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
