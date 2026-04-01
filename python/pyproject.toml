@@ -3,7 +3,7 @@ name = "speak-right"
 version = "2.0.0"
 description = "AI-powered sales call analysis service"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     # AWS (S3 + Transcribe)
     "boto3>=1.34.0",
@@ -19,8 +19,8 @@ dependencies = [
     "google-genai>=1.66.0",
     "anthropic>=0.7.0",
     # Auth + DB
-    "supabase>=2.0.0",
+    "supabase>=2.0.0,<2.27.0",
     "pyjwt[crypto]>=2.8.0",
     "cryptography>=41.0.0",
-    "audioop-lts>=0.2.2",
+    "audioop-lts>=0.2.2; python_version >= '3.13'",
 ]
