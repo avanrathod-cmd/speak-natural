@@ -43,9 +43,16 @@ function DashboardRow({
       onClick={onClick}
     >
       <td className="px-6 py-4">
-        <p className="text-sm font-medium text-gray-900 capitalize">
-          {formatCallTitle(call)}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-gray-900 capitalize">
+            {formatCallTitle(call)}
+          </p>
+          {call.source === 'attendee' && (
+            <span className="text-xs font-medium bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">
+              Bot
+            </span>
+          )}
+        </div>
         <p className="text-xs text-gray-400 mt-0.5">
           {formatCallDate(call)} · {formatDuration(call)}
         </p>

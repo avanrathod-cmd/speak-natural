@@ -9,7 +9,7 @@ import {
   useLocation,
   useParams,
 } from 'react-router-dom';
-import { Phone, Plus, ArrowLeft } from 'lucide-react';
+import { Phone, Plus, ArrowLeft, CalendarCheck, Calendar } from 'lucide-react';
 import { CallDashboard } from './components/CallDashboard';
 import { UploadView } from './components/UploadView';
 import { ProcessingView } from './components/ProcessingView';
@@ -59,6 +59,43 @@ export default function App() {
   const [processingActive, setProcessingActive] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Calendar integration state
+  const [calendarLinked, setCalendarLinked] = useState(false);
+  const [calendarLinking, setCalendarLinking] = useState(false);
+
+  const fetchCalendarStatus = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const resp = await fetch('/attendee/status', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setCalendarLinked(data.linked);
+      }
+    } catch {
+      // non-fatal
+    }
+  }, [getAccessToken]);
+
+  const handleLinkCalendar = async () => {
+    setCalendarLinking(true);
+    try {
+      const token = await getAccessToken();
+      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const resp = await fetch(`${apiUrl}/attendee/auth/google/init`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error('Failed to start OAuth flow');
+      const { url } = await resp.json();
+      window.location.href = url;
+    } catch (e) {
+      console.error('Calendar link error:', e);
+      setCalendarLinking(false);
+    }
+  };
+
   const loadCalls = useCallback(async () => {
     const token = await getAccessToken();
     if (!token) return;
@@ -73,6 +110,18 @@ export default function App() {
   useEffect(() => {
     if (user) loadCalls();
   }, [user, loadCalls]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchCalendarStatus();
+
+    // After Google OAuth redirect, backend appends ?calendar_linked=true
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('calendar_linked') === 'true') {
+      setCalendarLinked(true);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [user, fetchCalendarStatus]);
 
   if (loading) {
     return (
@@ -181,13 +230,30 @@ export default function App() {
             </button>
           )}
           {onCallsPage && (
-            <button
-              onClick={() => navigate('/upload')}
-              className="flex items-center gap-1.5 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium"
-            >
-              <Plus className="w-4 h-4" />
-              New Analysis
-            </button>
+            <>
+              {calendarLinked ? (
+                <span className="flex items-center gap-1.5 text-xs text-purple-700 bg-purple-50 border border-purple-200 px-3 py-1.5 rounded-lg font-medium">
+                  <CalendarCheck className="w-3.5 h-3.5" />
+                  Calendar connected
+                </span>
+              ) : (
+                <button
+                  onClick={handleLinkCalendar}
+                  disabled={calendarLinking}
+                  className="flex items-center gap-1.5 text-sm bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 font-medium disabled:opacity-50"
+                >
+                  <Calendar className="w-4 h-4" />
+                  {calendarLinking ? 'Redirecting…' : 'Connect Calendar'}
+                </button>
+              )}
+              <button
+                onClick={() => navigate('/upload')}
+                className="flex items-center gap-1.5 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium"
+              >
+                <Plus className="w-4 h-4" />
+                New Analysis
+              </button>
+            </>
           )}
         </div>
       </header>

@@ -31,6 +31,7 @@ export interface SalesCallStatus {
 export interface SalesCallListItem {
   call_id: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
+  source?: 'manual' | 'attendee';
   error?: string;
   audio_filename?: string;
   created_at?: string;

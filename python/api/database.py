@@ -854,6 +854,171 @@ class SalesDatabaseService(DatabaseService):
         return rows
 
     # -----------------------------------------------------------------------
+    # Attendee integration
+    # -----------------------------------------------------------------------
+
+    def save_attendee_calendar_id(
+        self,
+        user_id: str,
+        calendar_id: str,
+    ) -> None:
+        """
+        Store the Attendee calendar ID on the user's profile.
+
+        Args:
+            user_id: User UUID
+            calendar_id: Attendee calendar ID from link_google_calendar()
+        """
+        self.client.table("user_profiles").upsert(
+            {"id": user_id, "attendee_calendar_id": calendar_id}
+        ).execute()
+
+    def get_attendee_calendar_id(
+        self,
+        user_id: str,
+    ) -> Optional[str]:
+        """
+        Return the Attendee calendar ID linked to a user, or None.
+
+        Args:
+            user_id: User UUID
+
+        Returns:
+            Attendee calendar ID string or None
+        """
+        result = (
+            self.client.table("user_profiles")
+            .select("attendee_calendar_id")
+            .eq("id", user_id)
+            .execute()
+        )
+        if result.data:
+            return result.data[0].get("attendee_calendar_id")
+        return None
+
+    def create_sales_call_from_attendee(
+        self,
+        call_id: str,
+        bot_id: str,
+        user_id: str,
+        audio_filename: str,
+    ) -> Dict:
+        """
+        Insert a sales_calls row for a call recorded by Attendee bot.
+
+        Sets source="attendee" and attendee_bot_id for dedup tracking.
+        The UNIQUE constraint on attendee_bot_id means inserting the
+        same bot_id twice raises an IntegrityError — callers should
+        catch this and treat it as a no-op.
+
+        Args:
+            call_id: Unique call identifier (e.g. "call_abc123")
+            bot_id: Attendee bot ID
+            user_id: UUID of the user who owns the linked calendar
+            audio_filename: Filename stored in S3
+
+        Returns:
+            Created sales_call row
+        """
+        org_id = self._ensure_org(user_id)
+
+        result = (
+            self.client.table("sales_calls")
+            .insert({
+                "org_id": org_id,
+                "rep_id": user_id,
+                "call_id": call_id,
+                "audio_filename": audio_filename,
+                "status": "pending",
+                "source": "attendee",
+                "attendee_bot_id": bot_id,
+            })
+            .execute()
+        )
+
+        if not result.data:
+            raise Exception(
+                f"Failed to create sales call for bot {bot_id}"
+            )
+
+        return result.data[0]
+
+    def get_user_id_by_calendar_id(
+        self,
+        calendar_id: str,
+    ) -> Optional[str]:
+        """
+        Look up the user whose profile holds the given Attendee
+        calendar ID.
+
+        Used in the webhook handler to route an incoming recording
+        to the correct user.
+
+        Args:
+            calendar_id: Attendee calendar ID
+
+        Returns:
+            User UUID string or None
+        """
+        result = (
+            self.client.table("user_profiles")
+            .select("id")
+            .eq("attendee_calendar_id", calendar_id)
+            .execute()
+        )
+        if result.data:
+            return result.data[0]["id"]
+        return None
+
+    def get_user_email(self, user_id: str) -> Optional[str]:
+        """
+        Fetch the email address for a user via the Supabase admin API.
+
+        Used in the OAuth callback where no JWT is present.
+
+        Args:
+            user_id: Supabase user UUID
+
+        Returns:
+            Email string or None
+        """
+        try:
+            resp = self.client.auth.admin.get_user_by_id(user_id)
+            return resp.user.email if resp.user else None
+        except Exception:
+            return None
+
+    def is_webhook_key_processed(self, key: str) -> bool:
+        """
+        Check whether an Attendee webhook idempotency key has been
+        processed already.
+
+        Args:
+            key: idempotency_key from the Attendee webhook payload
+
+        Returns:
+            True if the key exists in webhook_idempotency_keys
+        """
+        result = (
+            self.client.table("webhook_idempotency_keys")
+            .select("key")
+            .eq("key", key)
+            .execute()
+        )
+        return bool(result.data)
+
+    def mark_webhook_key_processed(self, key: str) -> None:
+        """
+        Record an Attendee webhook idempotency key as processed.
+
+        Args:
+            key: idempotency_key from the Attendee webhook payload
+        """
+        self.client.table("webhook_idempotency_keys").insert(
+            {"key": key}
+        ).execute()
+
+    # -----------------------------------------------------------------------
     # Private helpers
     # -----------------------------------------------------------------------
 
