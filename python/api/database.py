@@ -943,6 +943,72 @@ class SalesDatabaseService(DatabaseService):
 
         return result.data[0]
 
+    def save_zoom_connection_id(
+        self,
+        user_id: str,
+        connection_id: Optional[str],
+    ) -> None:
+        """
+        Store or clear the Attendee Zoom connection ID on the user's
+        profile. Pass None to clear an invalidated connection.
+
+        Args:
+            user_id: User UUID
+            connection_id: Attendee zoom_oauth_connection ID, or None
+        """
+        self.client.table("user_profiles").upsert(
+            {"id": user_id, "zoom_connection_id": connection_id}
+        ).execute()
+
+    def get_zoom_connection_id(
+        self,
+        user_id: str,
+    ) -> Optional[str]:
+        """
+        Return the Attendee Zoom connection ID for a user, or None.
+
+        Args:
+            user_id: User UUID
+
+        Returns:
+            zoom_connection_id string or None
+        """
+        result = (
+            self.client.table("user_profiles")
+            .select("zoom_connection_id")
+            .eq("id", user_id)
+            .execute()
+        )
+        if result.data:
+            return result.data[0].get("zoom_connection_id")
+        return None
+
+    def get_user_id_by_zoom_connection_id(
+        self,
+        connection_id: str,
+    ) -> Optional[str]:
+        """
+        Look up the user whose profile holds the given Zoom
+        connection ID.
+
+        Used in the webhook handler when a connection is invalidated.
+
+        Args:
+            connection_id: Attendee zoom_oauth_connection ID
+
+        Returns:
+            User UUID string or None
+        """
+        result = (
+            self.client.table("user_profiles")
+            .select("id")
+            .eq("zoom_connection_id", connection_id)
+            .execute()
+        )
+        if result.data:
+            return result.data[0]["id"]
+        return None
+
     def get_user_id_by_calendar_id(
         self,
         calendar_id: str,

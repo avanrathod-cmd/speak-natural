@@ -9,7 +9,7 @@ import {
   useLocation,
   useParams,
 } from 'react-router-dom';
-import { Phone, Plus, ArrowLeft, CalendarCheck, Calendar } from 'lucide-react';
+import { Phone, Plus, ArrowLeft, CalendarCheck, Calendar, Video } from 'lucide-react';
 import { CallDashboard } from './components/CallDashboard';
 import { UploadView } from './components/UploadView';
 import { ProcessingView } from './components/ProcessingView';
@@ -63,6 +63,10 @@ export default function App() {
   const [calendarLinked, setCalendarLinked] = useState(false);
   const [calendarLinking, setCalendarLinking] = useState(false);
 
+  // Zoom integration state
+  const [zoomConnected, setZoomConnected] = useState(false);
+  const [zoomConnecting, setZoomConnecting] = useState(false);
+
   const fetchCalendarStatus = useCallback(async () => {
     const token = await getAccessToken();
     if (!token) return;
@@ -74,6 +78,17 @@ export default function App() {
         const data = await resp.json();
         setCalendarLinked(data.linked);
       }
+    } catch {
+      // non-fatal
+    }
+  }, [getAccessToken]);
+
+  const fetchZoomStatus = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const data = await apiService.getZoomStatus(token);
+      setZoomConnected(data.connected);
     } catch {
       // non-fatal
     }
@@ -96,6 +111,19 @@ export default function App() {
     }
   };
 
+  const handleLinkZoom = async () => {
+    setZoomConnecting(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Not authenticated');
+      const { url } = await apiService.initZoomOAuth(token);
+      window.location.href = url;
+    } catch (e) {
+      console.error('Zoom link error:', e);
+      setZoomConnecting(false);
+    }
+  };
+
   const loadCalls = useCallback(async () => {
     const token = await getAccessToken();
     if (!token) return;
@@ -114,14 +142,18 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     fetchCalendarStatus();
+    fetchZoomStatus();
 
-    // After Google OAuth redirect, backend appends ?calendar_linked=true
     const params = new URLSearchParams(window.location.search);
     if (params.get('calendar_linked') === 'true') {
       setCalendarLinked(true);
       window.history.replaceState({}, '', window.location.pathname);
     }
-  }, [user, fetchCalendarStatus]);
+    if (params.get('zoom_connected') === 'true') {
+      setZoomConnected(true);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [user, fetchCalendarStatus, fetchZoomStatus]);
 
   if (loading) {
     return (
@@ -244,6 +276,21 @@ export default function App() {
                 >
                   <Calendar className="w-4 h-4" />
                   {calendarLinking ? 'Redirecting…' : 'Connect Calendar'}
+                </button>
+              )}
+              {zoomConnected ? (
+                <span className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg font-medium">
+                  <Video className="w-3.5 h-3.5" />
+                  Zoom connected
+                </span>
+              ) : (
+                <button
+                  onClick={handleLinkZoom}
+                  disabled={zoomConnecting}
+                  className="flex items-center gap-1.5 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
+                >
+                  <Video className="w-4 h-4" />
+                  {zoomConnecting ? 'Redirecting…' : 'Connect Zoom'}
                 </button>
               )}
               <button

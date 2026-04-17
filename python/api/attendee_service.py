@@ -38,14 +38,17 @@ from api.auth import get_current_user
 from api.database import SalesDatabaseService
 from services.audio_processor import ensure_wav_format
 from services.sales_call_processor import SalesCallProcessorService
+from models.attendee import AttendeeWebhookPayload
 from utils.attendee_utils import (
-    _is_google_meet,
+    get_meeting_platform,
     get_bot,
     get_calendar_events,
+    create_zoom_oauth_connection,
     link_google_calendar,
     register_calendar_webhook,
     schedule_bot_for_event,
     schedule_existing_upcoming_meets,
+    update_calendar_credentials,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,6 +66,9 @@ _GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 _GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "")
 _FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 _OAUTH_STATE_SECRET = os.getenv("OAUTH_STATE_SECRET", "")
+_ZOOM_CLIENT_ID = os.getenv("ZOOM_CLIENT_ID", "")
+_ZOOM_CLIENT_SECRET = os.getenv("ZOOM_CLIENT_SECRET", "")
+_ZOOM_REDIRECT_URI = os.getenv("ZOOM_REDIRECT_URI", "")
 
 _GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 _GOOGLE_CLIENT_CONFIG = {
@@ -158,9 +164,32 @@ async def google_auth_callback(
     except requests.HTTPError as e:
         error_body = e.response.json() if e.response.content else {}
         if error_body.get("deduplication_key"):
-            # Calendar already linked — still redirect successfully
-            logger.info("Calendar already linked for user %s", user_id)
-            return RedirectResponse(f"{_FRONTEND_URL}/?calendar_linked=true")
+            # Calendar already exists on Attendee — push the new
+            # refresh token so Attendee can reconnect.
+            existing_id = _db.get_attendee_calendar_id(user_id)
+            if existing_id:
+                try:
+                    update_calendar_credentials(
+                        calendar_id=existing_id,
+                        refresh_token=refresh_token,
+                        client_secret=_GOOGLE_CLIENT_SECRET,
+                    )
+                    logger.info(
+                        "Updated credentials for calendar %s "
+                        "(user %s)",
+                        existing_id,
+                        user_id,
+                    )
+                except requests.HTTPError as patch_err:
+                    logger.error(
+                        "Failed to update calendar credentials "
+                        "for %s: %s",
+                        existing_id,
+                        patch_err.response.text,
+                    )
+            return RedirectResponse(
+                f"{_FRONTEND_URL}/?calendar_linked=true"
+            )
         raise HTTPException(
             status_code=502,
             detail=f"Attendee calendar link failed: {e.response.text}",
@@ -176,6 +205,88 @@ async def google_auth_callback(
 
     background_tasks.add_task(_post_link_setup, calendar_id)
     return RedirectResponse(f"{_FRONTEND_URL}/?calendar_linked=true")
+
+
+@attendee_router.get("/auth/zoom/init")
+async def zoom_auth_init(user: dict = Depends(get_current_user)):
+    """
+    Start the Zoom OAuth flow.
+
+    Returns a Zoom authorization URL. The frontend redirects the
+    browser there; after the user grants permission Zoom redirects
+    to /attendee/auth/zoom/callback.
+    """
+    if not _ZOOM_CLIENT_ID or not _ZOOM_REDIRECT_URI:
+        raise HTTPException(
+            status_code=500,
+            detail="ZOOM_CLIENT_ID / ZOOM_REDIRECT_URI not configured",
+        )
+    state = _sign_state(user["user_id"], "")
+    from urllib.parse import urlencode
+    params = urlencode({
+        "response_type": "code",
+        "client_id": _ZOOM_CLIENT_ID,
+        "redirect_uri": _ZOOM_REDIRECT_URI,
+        "state": state,
+        "scope": " ".join([
+            "user:read:user",
+            "user:read:token",
+            "user:read:zak",
+            "meeting:read:list_meetings",
+            "meeting:read:local_recording_token",
+        ]),
+    })
+    return {"url": f"https://zoom.us/oauth/authorize?{params}"}
+
+
+@attendee_router.get("/auth/zoom/callback")
+async def zoom_auth_callback(code: str, state: str):
+    """
+    Handle the Zoom OAuth callback.
+
+    Exchanges the authorization code for an Attendee
+    zoom_oauth_connection, saves the connection ID, then redirects
+    the user back to the frontend.
+    """
+    result = _verify_state(state)
+    if not result:
+        raise HTTPException(
+            status_code=400, detail="Invalid or expired state"
+        )
+    user_id, _ = result  # no code_verifier needed for Zoom
+
+    try:
+        connection = create_zoom_oauth_connection(
+            code=code,
+            redirect_uri=_ZOOM_REDIRECT_URI,
+        )
+    except requests.HTTPError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Attendee Zoom connection failed: {e.response.text}"
+            ),
+        )
+
+    connection_id = connection["id"]
+    _db.save_zoom_connection_id(user_id, connection_id)
+    logger.info(
+        "Linked Zoom connection for user %s (connection_id=%s)",
+        user_id,
+        connection_id,
+    )
+
+    return RedirectResponse(f"{_FRONTEND_URL}/?zoom_connected=true")
+
+
+@attendee_router.get("/zoom/status")
+async def get_zoom_status(user: dict = Depends(get_current_user)):
+    """Return whether the user has a linked Zoom connection."""
+    connection_id = _db.get_zoom_connection_id(user["user_id"])
+    return {
+        "connected": connection_id is not None,
+        "connection_id": connection_id,
+    }
 
 
 @attendee_router.post("/link")
@@ -315,9 +426,9 @@ async def attendee_webhook(
             "(received=%r)", signature
         )
 
-    payload = json.loads(body)
-    trigger = payload.get("trigger", "")
-    idempotency_key = payload.get("idempotency_key", "")
+    payload = AttendeeWebhookPayload.model_validate(json.loads(body))
+    trigger = payload.trigger
+    idempotency_key = payload.idempotency_key
 
     if _db.is_webhook_key_processed(idempotency_key):
         logger.info(
@@ -331,13 +442,24 @@ async def attendee_webhook(
         )
 
     elif trigger == "bot.state_change":
-        event_type = payload.get("data", {}).get("event_type", "")
+        event_type = payload.data.event_type if payload.data else ""
         if event_type == "post_processing_completed":
-            bot_id = payload.get("bot_id")
+            bot_id = payload.bot_id
             if bot_id:
                 background_tasks.add_task(
                     _ingest_and_analyze_recording,
                     bot_id,
+                    idempotency_key,
+                )
+
+    elif trigger == "zoom_oauth_connection.state_change":
+        state = payload.data.state if payload.data else ""
+        if state in ("expired", "revoked", "invalid"):
+            connection_id = payload.zoom_oauth_connection_id
+            if connection_id:
+                background_tasks.add_task(
+                    _handle_zoom_connection_invalid,
+                    connection_id,
                     idempotency_key,
                 )
 
@@ -349,7 +471,7 @@ async def attendee_webhook(
 # ---------------------------------------------------------------------------
 
 def _schedule_bot_if_needed(
-    payload: dict,
+    payload: AttendeeWebhookPayload,
     idempotency_key: str,
 ) -> None:
     """
@@ -363,7 +485,7 @@ def _schedule_bot_if_needed(
         logger.error("BASE_URL not set — cannot schedule bot")
         return
 
-    calendar_id = payload.get("calendar_id")
+    calendar_id = payload.calendar_id
     if not calendar_id:
         _db.mark_webhook_key_processed(idempotency_key)
         return
@@ -382,22 +504,25 @@ def _schedule_bot_if_needed(
     webhook_url = f"{_BASE_URL}/attendee/webhook"
     scheduled = 0
     for event in events:
-        if not _is_google_meet(event) or event.get("bots"):
+        if not get_meeting_platform(event) or event.bots:
             continue
+
         try:
             bot = schedule_bot_for_event(
-                event["id"], webhook_url, calendar_id=calendar_id
+                event.id,
+                webhook_url,
+                calendar_id=calendar_id,
             )
             logger.info(
                 "Scheduled bot %s for event '%s'",
-                bot.get("id"),
-                event.get("name", event["id"]),
+                bot.id,
+                event.name or event.id,
             )
             scheduled += 1
         except requests.HTTPError as e:
             logger.error(
                 "Failed to schedule bot for event %s: %s",
-                event.get("id"),
+                event.id,
                 e.response.text,
             )
 
@@ -435,12 +560,8 @@ def _ingest_and_analyze_recording(
     try:
         # 1. Fetch bot details
         bot_data = get_bot(bot_id)
-        recording_url = bot_data.get("recording_url")
-        calendar_id = (
-            bot_data.get("calendar_event", {}).get("calendar_id")
-            or bot_data.get("calendar_id")
-            or (bot_data.get("metadata") or {}).get("calendar_id")
-        )
+        recording_url = bot_data.recording_url
+        calendar_id = bot_data.resolve_calendar_id()
 
         if not recording_url:
             logger.error(
@@ -507,6 +628,33 @@ def _ingest_and_analyze_recording(
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+
+def _handle_zoom_connection_invalid(
+    connection_id: str,
+    idempotency_key: str,
+) -> None:
+    """
+    Clear a Zoom connection that Attendee has marked expired/revoked.
+
+    The user will be prompted to reconnect on their next dashboard visit.
+    """
+    user_id = _db.get_user_id_by_zoom_connection_id(connection_id)
+    if user_id:
+        _db.save_zoom_connection_id(user_id, None)
+        logger.warning(
+            "Zoom connection %s invalidated — cleared for user %s",
+            connection_id,
+            user_id,
+        )
+    else:
+        logger.warning(
+            "zoom_oauth_connection.state_change for unknown "
+            "connection %s — ignoring",
+            connection_id,
+        )
+    _db.mark_webhook_key_processed(idempotency_key)
+
 
 def _post_link_setup(calendar_id: str) -> None:
     """

@@ -87,6 +87,31 @@ class ApiService {
     return data.url;
   }
 
+  // ── Zoom OAuth ──────────────────────────────────────────────────────────
+
+  async getZoomStatus(
+    token: string,
+  ): Promise<{ connected: boolean; connection_id: string | null }> {
+    const response = await fetch(`${API_URL}/attendee/zoom/status`, {
+      headers: await this.getHeaders(token),
+    });
+    if (!response.ok) {
+      throw new Error(`Zoom status check failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async initZoomOAuth(token: string): Promise<{ url: string }> {
+    const response = await fetch(
+      `${API_URL}/attendee/auth/zoom/init`,
+      { headers: await this.getHeaders(token) },
+    );
+    if (!response.ok) {
+      throw new Error(`Zoom OAuth init failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
   // ── Guest Analysis ───────────────────────────────────────────────────────
 
   async uploadGuestCall(

@@ -7,9 +7,13 @@ All functions are synchronous (short-lived HTTP calls).
 
 import os
 import requests
+from models.attendee import (
+    AttendeeCalendarEvent,
+    AttendeeBotData,
+)
 
 _API_KEY = os.getenv("ATTENDEE_API_KEY")
-_BASE_URL = "https://app.attendee.dev/api/v1"
+_ATTENDEE_BASE_URL = "https://app.attendee.dev/api/v1"
 _HEADERS = {
     "Authorization": f"Token {_API_KEY}",
     "Content-Type": "application/json",
@@ -49,7 +53,7 @@ def link_google_calendar(
         "deduplication_key": user_email,
     }
     resp = requests.post(
-        f"{_BASE_URL}/calendars",
+        f"{_ATTENDEE_BASE_URL}/calendars",
         headers=_HEADERS,
         json=payload,
     )
@@ -79,7 +83,7 @@ def register_calendar_webhook(webhook_url: str) -> dict:
         requests.HTTPError: if the Attendee API returns non-2xx
     """
     resp = requests.post(
-        f"{_BASE_URL}/webhooks",
+        f"{_ATTENDEE_BASE_URL}/webhooks",
         headers=_HEADERS,
         json={
             "url": webhook_url,
@@ -93,7 +97,7 @@ def register_calendar_webhook(webhook_url: str) -> dict:
 def schedule_existing_upcoming_meets(
     calendar_id: str,
     webhook_url: str,
-) -> list[dict]:
+) -> list[AttendeeBotData]:
     """
     One-time initial pass: schedule bots for all upcoming Google Meet
     events that already exist at calendar-link time.
@@ -109,26 +113,29 @@ def schedule_existing_upcoming_meets(
         List of created bot objects (empty if none were scheduled)
     """
     events_resp = requests.get(
-        f"{_BASE_URL}/calendar_events",
+        f"{_ATTENDEE_BASE_URL}/calendar_events",
         headers=_HEADERS,
         params={"calendar_id": calendar_id},
     )
     events_resp.raise_for_status()
-    events = events_resp.json().get("results", [])
+    events = [
+        AttendeeCalendarEvent.model_validate(e)
+        for e in events_resp.json().get("results", [])
+    ]
 
     scheduled = []
     for event in events:
-        if not _is_google_meet(event) or event.get("bots"):
+        if not get_meeting_platform(event) or event.bots:
             continue
 
         try:
             bot = schedule_bot_for_event(
-                event["id"], webhook_url, calendar_id=calendar_id
+                event.id, webhook_url, calendar_id=calendar_id
             )
             scheduled.append(bot)
         except requests.HTTPError as e:
             print(
-                f"Failed to schedule bot for event {event['id']}: "
+                f"Failed to schedule bot for event {event.id}: "
                 f"{e.response.status_code} {e.response.text}"
             )
 
@@ -139,7 +146,7 @@ def schedule_bot_for_event(
     calendar_event_id: str,
     webhook_url: str,
     calendar_id: str | None = None,
-) -> dict:
+) -> AttendeeBotData:
     """
     Create an Attendee bot for a specific calendar event.
 
@@ -147,9 +154,13 @@ def schedule_bot_for_event(
     derives join_at from the calendar_event_id). A bot.state_change
     webhook is registered so we are notified when the recording is ready.
 
+    For Zoom meetings, Attendee automatically applies the
+    zoom_oauth_connection for the matching user — no extra field needed.
+
     Args:
         calendar_event_id: Attendee calendar event ID
         webhook_url: Publicly reachable URL for POST /attendee/webhook
+        calendar_id: Stored in bot metadata for calendar_id lookup
 
     Returns:
         Created bot object from Attendee
@@ -172,28 +183,154 @@ def schedule_bot_for_event(
     if calendar_id:
         payload["metadata"] = {"calendar_id": calendar_id}
 
-    resp = requests.post(f"{_BASE_URL}/bots", headers=_HEADERS, json=payload)
+    resp = requests.post(f"{_ATTENDEE_BASE_URL}/bots", headers=_HEADERS, json=payload)
+    resp.raise_for_status()
+    return AttendeeBotData.model_validate(resp.json())
+
+
+_PLATFORM_PATTERNS: dict[str, list[str]] = {
+    "google_meet": ["meet.google.com"],
+    "zoom": [
+        "zoom.us/j/",
+        "zoom.us/my/",
+        "us02web.zoom.us",
+        "us06web.zoom.us",
+    ],
+    "teams": [
+        "teams.microsoft.com/l/meetup-join",
+        "teams.live.com/meet/",
+    ],
+}
+
+
+def get_meeting_platform(event: AttendeeCalendarEvent) -> str | None:
+    """
+    Return 'google_meet' | 'zoom' | 'teams' | None.
+
+    Checks meeting_url, location, then description — Zoom URLs
+    are often in the location field rather than meeting_url.
+    """
+    for text in (event.meeting_url, event.location, event.description):
+        platform = _platform_from_url(text or "")
+        if platform:
+            return platform
+    return None
+
+
+def _platform_from_url(url: str) -> str | None:
+    """Return the platform name if url matches a known pattern."""
+    for platform, patterns in _PLATFORM_PATTERNS.items():
+        if any(p in url for p in patterns):
+            return platform
+    return None
+
+
+def create_zoom_oauth_connection(
+    code: str,
+    redirect_uri: str,
+) -> dict:
+    """
+    Exchange a Zoom OAuth authorization code for an Attendee
+    zoom_oauth_connection.
+
+    Called from the Zoom OAuth callback after the user grants
+    permission. Attendee stores the Zoom credentials and returns
+    a connection object whose `id` must be saved to user_profiles.
+
+    Args:
+        code: Authorization code from Zoom OAuth redirect
+        redirect_uri: Must match the redirect URI registered in
+                      the Zoom app and sent in the auth request
+
+    Returns:
+        Attendee zoom_oauth_connection object (dict with at least `id`)
+
+    Raises:
+        requests.HTTPError: if the Attendee API returns non-2xx
+    """
+    resp = requests.post(
+        f"{_ATTENDEE_BASE_URL}/zoom_oauth_connections",
+        headers=_HEADERS,
+        json={"authorization_code": code, "redirect_uri": redirect_uri},
+    )
     resp.raise_for_status()
     return resp.json()
 
 
-def _is_google_meet(event: dict) -> bool:
-    """Return True if the event has a Google Meet URL."""
-    url = event.get("meeting_url", "") or ""
-    return "meet.google.com" in url
+def get_zoom_oauth_connection(connection_id: str) -> dict:
+    """
+    Fetch a zoom_oauth_connection by ID.
 
+    Used to check connection status after a
+    zoom_oauth_connection.state_change webhook.
 
-def get_calendar_event(event_id: str) -> dict:
-    """Fetch a single calendar event by ID."""
+    Args:
+        connection_id: Attendee zoom_oauth_connection ID
+
+    Returns:
+        Connection object from Attendee
+
+    Raises:
+        requests.HTTPError: if the Attendee API returns non-2xx
+    """
     resp = requests.get(
-        f"{_BASE_URL}/calendar_events/{event_id}",
+        f"{_ATTENDEE_BASE_URL}/zoom_oauth_connections/{connection_id}",
         headers=_HEADERS,
     )
     resp.raise_for_status()
     return resp.json()
 
 
-def get_calendar_events(calendar_id: str) -> list[dict]:
+def update_calendar_credentials(
+    calendar_id: str,
+    refresh_token: str,
+    client_secret: str,
+) -> dict:
+    """
+    Update the refresh token on an existing Attendee calendar.
+
+    Called when a user re-links their calendar after the previous
+    token has expired or been revoked. Attendee rejects a second
+    POST /calendars with the same deduplication_key, so we PATCH
+    the existing calendar instead.
+
+    Attendee PATCH /calendars/{id} accepts only:
+    refresh_token, client_secret, metadata.
+
+    Args:
+        calendar_id: Attendee calendar ID stored in user_profiles
+        refresh_token: New Google OAuth refresh token
+        client_secret: Google OAuth client secret
+
+    Returns:
+        Updated calendar object from Attendee
+
+    Raises:
+        requests.HTTPError: if the Attendee API returns non-2xx
+    """
+    resp = requests.patch(
+        f"{_ATTENDEE_BASE_URL}/calendars/{calendar_id}",
+        headers=_HEADERS,
+        json={
+            "refresh_token": refresh_token,
+            "client_secret": client_secret,
+        },
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_calendar_event(event_id: str) -> AttendeeCalendarEvent:
+    """Fetch a single calendar event by ID."""
+    resp = requests.get(
+        f"{_ATTENDEE_BASE_URL}/calendar_events/{event_id}",
+        headers=_HEADERS,
+    )
+    resp.raise_for_status()
+    return AttendeeCalendarEvent.model_validate(resp.json())
+
+
+def get_calendar_events(calendar_id: str) -> list[AttendeeCalendarEvent]:
     """
     Fetch all upcoming calendar events synced by Attendee.
 
@@ -210,15 +347,18 @@ def get_calendar_events(calendar_id: str) -> list[dict]:
         requests.HTTPError: if the Attendee API returns non-2xx
     """
     resp = requests.get(
-        f"{_BASE_URL}/calendar_events",
+        f"{_ATTENDEE_BASE_URL}/calendar_events",
         headers=_HEADERS,
         params={"calendar_id": calendar_id},
     )
     resp.raise_for_status()
-    return resp.json().get("results", [])
+    return [
+        AttendeeCalendarEvent.model_validate(e)
+        for e in resp.json().get("results", [])
+    ]
 
 
-def get_bot(bot_id: str) -> dict:
+def get_bot(bot_id: str) -> AttendeeBotData:
     """
     Fetch a single bot by ID from the Attendee API, including its
     recording URL from the /recording sub-resource.
@@ -233,14 +373,14 @@ def get_bot(bot_id: str) -> dict:
     Raises:
         requests.HTTPError: if the Attendee API returns non-2xx
     """
-    resp = requests.get(f"{_BASE_URL}/bots/{bot_id}", headers=_HEADERS)
+    resp = requests.get(f"{_ATTENDEE_BASE_URL}/bots/{bot_id}", headers=_HEADERS)
     resp.raise_for_status()
     bot = resp.json()
 
     rec_resp = requests.get(
-        f"{_BASE_URL}/bots/{bot_id}/recording", headers=_HEADERS
+        f"{_ATTENDEE_BASE_URL}/bots/{bot_id}/recording", headers=_HEADERS
     )
     if rec_resp.ok:
         bot["recording_url"] = rec_resp.json().get("url")
 
-    return bot
+    return AttendeeBotData.model_validate(bot)
