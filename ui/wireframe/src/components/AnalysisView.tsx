@@ -12,6 +12,7 @@ import {
   Clock,
   User,
   Volume2,
+  Download,
 } from 'lucide-react';
 import { SalesCallAnalysis, SalesCallListItem } from '../types';
 import {
@@ -229,7 +230,31 @@ export function AnalysisView({
   const [tab, setTab] = useState<Tab>('rep');
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioError, setAudioError] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const { getAccessToken } = useAuth();
+
+  async function handleDownload() {
+    if (!selectedCall?.call_id) return;
+    setDownloading(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) return;
+      const blob = await apiService.exportCall(
+        selectedCall.call_id,
+        token,
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `speaknatural-${selectedCall.call_id}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download failed', err);
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   useEffect(() => {
     if (!selectedCall?.call_id) return;
@@ -268,6 +293,14 @@ export function AnalysisView({
           <p className="text-blue-200 text-sm mt-1">out of 100</p>
         </div>
         <div className="text-right space-y-2">
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="flex items-center gap-1.5 text-xs text-blue-200 hover:text-white disabled:opacity-50 ml-auto"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {downloading ? 'Downloading…' : 'Download Transcript'}
+          </button>
           <div className="flex items-center gap-2 justify-end">
             <span className="text-blue-200 text-sm">Lead</span>
             <span
