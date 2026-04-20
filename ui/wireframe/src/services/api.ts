@@ -75,6 +75,17 @@ class ApiService {
     return response.json();
   }
 
+  async exportCall(callId: string, token: string): Promise<Blob> {
+    const response = await fetch(
+      `${API_URL}/sales/calls/${callId}/export`,
+      { headers: await this.getHeaders(token) },
+    );
+    if (!response.ok) {
+      throw new Error(`Export failed: ${response.statusText}`);
+    }
+    return response.blob();
+  }
+
   async getCallAudio(callId: string, token: string): Promise<string> {
     const response = await fetch(
       `${API_URL}/sales/calls/${callId}/audio`,
