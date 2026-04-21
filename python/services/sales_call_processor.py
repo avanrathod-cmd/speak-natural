@@ -206,6 +206,15 @@ class SalesCallProcessorService:
             ),
         }
 
+        call_name = analysis.get("call_name")
+        if call_name:
+            # Only set if not already populated (e.g. from calendar event)
+            self._db.update_rows(
+                table="sales_calls",
+                data={"call_name": call_name},
+                filters={"call_id": call_id, "call_name": None},
+            )
+
         self._db.add_row(table="call_analyses", data={
             "call_id": call_id,
             "org_id": org_id,

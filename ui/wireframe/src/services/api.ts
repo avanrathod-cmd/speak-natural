@@ -112,6 +112,22 @@ class ApiService {
     return response.json();
   }
 
+  async updateCall(
+    callId: string,
+    patch: { call_name: string },
+    token: string,
+  ): Promise<{ call_id: string; call_name: string }> {
+    const response = await fetch(`${API_URL}/sales/calls/${callId}`, {
+      method: 'PATCH',
+      headers: await this.getHeaders(token),
+      body: JSON.stringify(patch),
+    });
+    if (!response.ok) {
+      throw new Error(`Update call failed: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
   async initZoomOAuth(token: string): Promise<{ url: string }> {
     const response = await fetch(
       `${API_URL}/attendee/auth/zoom/init`,
