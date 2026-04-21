@@ -86,10 +86,20 @@ class CallListItemResponse(BaseModel):
     status: str
     error: Optional[str] = None
     audio_filename: Optional[str] = None
+    call_name: Optional[str] = None
     created_at: Optional[datetime] = None
     duration_seconds: Optional[float] = None
     overall_rep_score: Optional[int] = None
     lead_score: Optional[int] = None
     engagement_level: Optional[str] = None
     customer_sentiment: Optional[str] = None
+
+
+class CallUpdateRequest(BaseModel):
+    call_name: str = Field(..., max_length=100)
+
+
+class CallUpdateResponse(BaseModel):
+    call_id: str
+    call_name: str
 

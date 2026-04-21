@@ -39,8 +39,21 @@ class _BotCalendarEvent(_Base):
 
 
 class _BotMetadata(_Base):
-    """Free-form metadata dict we attach when scheduling a bot."""
+    """
+    Free-form metadata dict we attach when scheduling a bot
+    (POST /bots payload) and read back from GET /bots/{id}.
+
+    calendar_id  — Attendee calendar ID of the owning user; used in
+                   _ingest_and_analyze_recording to look up which
+                   user_profile owns the bot so we can create the
+                   sales_calls record under the right rep_id.
+    event_name   — Calendar event title at schedule time (e.g.
+                   "Acme Corp Demo"). Written to sales_calls.call_name
+                   when the recording arrives, before LLM analysis runs,
+                   so the dashboard shows a readable name immediately.
+    """
     calendar_id: str | None = None
+    event_name: str | None = None
 
 
 class AttendeeBotData(_Base):

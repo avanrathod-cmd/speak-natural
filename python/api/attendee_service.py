@@ -581,6 +581,7 @@ def _schedule_bot_if_needed(
                 event.id,
                 webhook_url,
                 calendar_id=calendar_id,
+                event_name=event.name or None,
             )
             logger.info(
                 "Scheduled bot %s for event '%s'",
@@ -673,6 +674,10 @@ def _ingest_and_analyze_recording(
         audio_filename = basename(wav_path)
 
         # 5. Create DB record
+        event_name = (
+            bot_data.metadata.event_name if bot_data.metadata
+            else None
+        )
         org_id = _db.ensure_org(user_id)
         _db.add_row(table="sales_calls", data={
             "org_id": org_id,
@@ -682,6 +687,7 @@ def _ingest_and_analyze_recording(
             "status": "pending",
             "source": "attendee",
             "attendee_bot_id": bot_id,
+            **({"call_name": event_name} if event_name else {}),
         })
 
         # 6. Mark idempotency key before analysis so retries triggered

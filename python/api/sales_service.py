@@ -38,6 +38,8 @@ from api.models import (
     CallAnalysisResponse,
     CallListItemResponse,
     CallStatusResponse,
+    CallUpdateRequest,
+    CallUpdateResponse,
     ProductCreateRequest,
     ProductResponse,
     RegenerateScriptRequest,
@@ -344,7 +346,6 @@ async def get_call_status(
 )
 async def get_call_analysis(
     call_id: str,
-    user: dict = Depends(get_current_user),
 ):
     """Get the full analysis for a completed sales call."""
     row = _fetch_call(call_id)
@@ -471,6 +472,7 @@ async def list_calls(
             status=row["status"],
             error=row.get("error"),
             audio_filename=row.get("audio_filename"),
+            call_name=row.get("call_name"),
             created_at=row.get("created_at"),
             duration_seconds=row.get("duration_seconds"),
             overall_rep_score=row.get("overall_rep_score"),
@@ -479,6 +481,26 @@ async def list_calls(
             customer_sentiment=row.get("customer_sentiment"),
         ))
     return result
+
+
+@sales_router.patch(
+    "/calls/{call_id}", response_model=CallUpdateResponse
+)
+async def update_call(
+    call_id: str,
+    req: CallUpdateRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Rename a call. Only the owning rep can update."""
+    name = req.call_name.strip()
+    rows = _db.update_rows(
+        table="sales_calls",
+        data={"call_name": name},
+        filters={"call_id": call_id, "rep_id": user["user_id"]},
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Call not found")
+    return CallUpdateResponse(call_id=call_id, call_name=name)
 
 
 # ---------------------------------------------------------------------------
