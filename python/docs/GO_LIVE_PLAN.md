@@ -21,10 +21,10 @@ completed.
 
 | # | Area | Status |
 |---|------|--------|
-| 1 | Meeting Integrations (Zoom + Teams) | ⬜ Not started |
+| 1 | Meeting Integrations (Zoom + Teams) | ✅ Done |
 | 2 | Share Meeting Reviews | ⬜ Not started |
-| 3 | Download Transcripts + Summary | ⬜ Not started |
-| 4 | Payment Gateway (Stripe) | ⬜ Not started |
+| 3 | Download Transcripts + Summary | ✅ Done |
+| 4 | Payment Gateway (Dodo Payments) | ⬜ Not started |
 | 5 | UI Fixes + Dashboard | ⬜ Not started |
 | 6 | Video Recording (optional) | ⬜ Not started |
 
@@ -414,49 +414,52 @@ curl -H "Authorization: Bearer <token>" \
 
 ---
 
-## Item 4 — Payment Gateway (Stripe)
+## Item 4 — Payment Framework (Dodo Payments)
 
-**Goal:** Monthly subscription billing. Enforce limits so the
-product sustains itself from day one.
+**Goal:** Wire up end-to-end payment flow (user pays → webhook →
+plan stored in DB). Pricing model (user-based vs consumption-based)
+is TBD — enforcement logic is intentionally left out of this item
+and added once the model is decided.
 
-### Alternatives Considered
+### Provider: Dodo Payments
 
-**A — LemonSqueezy instead of Stripe (rejected)**
-LemonSqueezy auto-handles EU VAT and sales tax, which is genuinely
-useful. Rejected because Stripe's ecosystem (libraries, webhooks,
-testing tools, dashboard) is significantly more mature. Enterprise
-buyers also recognize and trust Stripe's checkout flow more. When
-VAT becomes a real problem, LemonSqueezy can be revisited.
+Dodo Payments is a Merchant of Record (MoR) platform built
+specifically for Indian founders billing international customers.
 
-**B — Per-call pricing instead of subscriptions (rejected)**
-More usage-aligned and avoids the "unlimited calls burn money"
-problem. Rejected for launch because it introduces cognitive load
-("do I have credits left?") at exactly the moment you need users
-to trust the product. Monthly flat fee removes friction. Add
-per-call overages as an add-on later.
+**Why Dodo over alternatives:**
+- **vs Stripe:** Invite-only in India since May 2024. 6%+ effective
+  cost after cross-border fees + FX markup. No e-FIRA docs (required
+  for Indian GST compliance).
+- **vs LemonSqueezy:** Acquired by Stripe in July 2024. Support has
+  slowed, roadmap gone quiet.
+- **vs Paddle:** Solid but charges a $150 risk assessment fee for new
+  accounts. Slower onboarding.
+- **vs Razorpay:** Best for Indian customers (UPI, net banking) but
+  settles in INR — cannot hold or receive USD directly.
 
-**C — Manual invoicing for early customers (rejected)**
-Zero engineering, perfect for first 5 customers. Rejected because
-it doesn't scale past ~10 customers, adds ops overhead, and signals
-that the product isn't production-ready. Stripe should go in before
-you publicly share the product.
+**Dodo advantages:**
+- MoR model: handles RBI/FEMA compliance, VAT in 225+ countries.
+  You receive clean INR as a service export.
+- 4% + $0.40/transaction — cheaper than Paddle/LemonSqueezy.
+- India-native, fast onboarding, Python SDK with Pydantic models.
 
-**D — Usage-based billing (Stripe Metered) (deferred)**
-Metered billing is more fair at scale but significantly more complex
-(usage records, proration, invoice line items). Deferred to after
-launch when actual usage patterns are known.
+### Pricing Model (TBD)
 
-### Plans (see cost analysis above for why these numbers)
+The enforcement model is undecided between:
+- **User-based:** charge per seat (e.g. Solo $39/mo, Team $99/mo
+  unlimited users)
+- **Consumption-based:** charge per call or call volume tier
 
-| Plan | Price | Call Limit | Users |
-|------|-------|------------|-------|
-| Free | $0 | 3 calls/month | 1 |
-| Pro | $49/month | 20 calls | 1 |
-| Pro+ | $99/month | 60 calls* | 1 |
-| Team | $199/month | 60 calls* | Up to 10 |
+Decision deferred until after the payment flow is live and we see
+real usage. The `subscriptions` table schema below is intentionally
+flexible — add a `seat_limit` or `calls_limit` column when decided.
 
-*Soft limit: flag in the admin view, don't hard-block on first
-launch. Learn your power-user usage before setting a hard ceiling.
+**Placeholder plans for Dodo test dashboard (subject to change):**
+
+| Plan | Price | Notes |
+|------|-------|-------|
+| Free | $0 | Default for all new orgs |
+| Pro | $39/month | Placeholder — exact limits TBD |
 
 ### What to build
 
@@ -465,178 +468,119 @@ launch. Learn your power-user usage before setting a hard ceiling.
 ```sql
 -- migrations/005_billing.sql
 CREATE TABLE subscriptions (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id              UUID NOT NULL
-                          REFERENCES organizations(id),
-    stripe_customer_id  TEXT,
-    stripe_sub_id       TEXT,
-    plan                TEXT NOT NULL DEFAULT 'free',
-    status              TEXT NOT NULL DEFAULT 'active',
-    current_period_end  TIMESTAMPTZ,
-    created_at          TIMESTAMPTZ DEFAULT now(),
-    updated_at          TIMESTAMPTZ DEFAULT now()
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id               UUID NOT NULL
+                           REFERENCES organizations(id),
+    dodo_customer_id     TEXT,
+    dodo_sub_id          TEXT,
+    plan                 TEXT NOT NULL DEFAULT 'free',
+    status               TEXT NOT NULL DEFAULT 'active',
+    current_period_end   TIMESTAMPTZ,
+    created_at           TIMESTAMPTZ DEFAULT now(),
+    updated_at           TIMESTAMPTZ DEFAULT now()
 );
 CREATE UNIQUE INDEX ON subscriptions(org_id);
-CREATE UNIQUE INDEX ON subscriptions(stripe_sub_id)
-  WHERE stripe_sub_id IS NOT NULL;
+CREATE UNIQUE INDEX ON subscriptions(dodo_sub_id)
+  WHERE dodo_sub_id IS NOT NULL;
 ```
 
-#### 4b — Stripe Client + Billing Service
+No usage counters yet — add those when the enforcement model is
+decided.
 
-**Files to create:**
-- `python/services/stripe_client.py` — thin wrapper:
-  `create_checkout_session()`, `create_portal_session()`,
-  `construct_webhook_event()`
-- `python/api/billing_service.py` — HTTP endpoints
+#### 4b — Billing Client
 
-**Endpoints:**
-```
-GET  /billing/plans          (public) → plan list + prices
-POST /billing/checkout       → {checkout_url}
-GET  /billing/portal         → {portal_url}
-POST /billing/webhook        → Stripe events (no auth,
-                               validate Stripe-Signature header)
-GET  /billing/status         → {plan, status, period_end,
-                                calls_used, calls_limit}
-```
-
-**Stripe events to handle:**
-- `checkout.session.completed` → create/update subscription row
-- `invoice.payment_succeeded` → reset monthly call counter
-- `customer.subscription.updated` → update plan + status
-- `customer.subscription.deleted` → downgrade to free
-
-#### 4c — Usage Enforcement
-
-Add a limit check helper in `sales_service.py`, called at the top
-of `POST /sales/calls/upload`:
+**`python/utils/billing_client.py`** — direct Dodo calls, no
+abstraction layer (add that if/when we switch providers):
 
 ```python
-def _assert_call_limit(user: dict, db: SalesDatabaseService):
-    """
-    Raises HTTP 402 if the org has reached its monthly call limit.
-    """
-    sub = db.get_subscription(user["org_id"])
-    plan = sub.get("plan", "free")
-    calls_this_month = db.count_calls_this_month(user["org_id"])
-    limits = {"free": 3, "pro": 20, "pro_plus": 60, "team": 60}
-    limit = limits.get(plan, 3)
-    if calls_this_month >= limit:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "message": "Monthly call limit reached.",
-                "plan": plan,
-                "limit": limit,
-                "used": calls_this_month,
-            }
-        )
+def create_checkout_session(
+    *, product_id: str, user_id: str,
+    customer_email: str, customer_name: str,
+    success_url: str, cancel_url: str,
+) -> str:  # returns checkout_url
+
+def create_portal_session(
+    *, customer_id: str, return_url: str,
+) -> str:  # returns portal_url
+
+def parse_webhook_event(
+    *, payload: bytes, headers: dict,
+) -> dict:  # normalised event dict
 ```
+
+Webhook signature verified via Dodo Python SDK `unwrap()` —
+raises 401 on invalid signature.
+
+#### 4c — Billing Service Endpoints
+
+**`python/api/billing_service.py`:**
+
+```
+POST /billing/checkout    → {checkout_url}
+POST /billing/webhook     → handle Dodo events (no auth)
+GET  /billing/status      → {plan, status, period_end}
+```
+
+**Webhook events handled:**
+- `subscription.active` → upsert subscription row with plan +
+  customer IDs
+- `subscription.renewed` → update `current_period_end`
+- `subscription.plan_changed` → update plan column
+- `subscription.cancelled` / `subscription.failed` → set
+  plan = 'free'
 
 #### 4d — Frontend
 
-**PricingPage.tsx (new):** Three plan cards with feature list.
-"Upgrade" → `POST /billing/checkout` → redirect to Stripe Checkout.
+**`PricingPage.tsx` (new):** Placeholder plan cards (Free / Pro).
+"Upgrade" → `POST /billing/checkout` → redirect to Dodo Checkout.
 
-**BillingPage.tsx (new):** Current plan, period end, calls used this
-month, "Manage Billing" → `GET /billing/portal` → new tab.
+**`BillingPage.tsx` (new):** Current plan badge, period end date,
+"Manage Billing" button → `GET /billing/portal` → new tab.
 
-Handle HTTP 402 in the upload flow (`handleFile` in `App.tsx`):
-show an upgrade banner / redirect to `/pricing`.
-
-**Env vars:**
+**New env vars:**
 ```
-STRIPE_SECRET_KEY=sk_live_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-STRIPE_PRO_PRICE_ID=price_...
-STRIPE_PRO_PLUS_PRICE_ID=price_...
-STRIPE_TEAM_PRICE_ID=price_...
+DODO_API_KEY=...
+DODO_WEBHOOK_KEY=...
+DODO_PRO_PRODUCT_ID=...
+FRONTEND_URL=https://your-app.com
 ```
 
-### Files to modify/create
+### Files to create/modify
 
-- `python/services/stripe_client.py` — new file
+- `python/utils/billing_client.py` — new file
 - `python/api/billing_service.py` — new file
 - `python/migrations/005_billing.sql` — new file
-- `python/api/main.py` — include billing router
-- `python/api/database.py` — add `get_subscription()`,
-  `upsert_subscription()`, `count_calls_this_month()`
-- `python/api/sales_service.py` — add `_assert_call_limit`
+- `python/api/main.py` — include billing router at `/billing`
 - `ui/wireframe/src/pages/PricingPage.tsx` — new file
 - `ui/wireframe/src/pages/BillingPage.tsx` — new file
-- `ui/wireframe/src/App.tsx` — routes + 402 handling
-- `ui/wireframe/src/services/api.ts` — billing API calls
+- `ui/wireframe/src/App.tsx` — add `/pricing`, `/billing` routes
+- `ui/wireframe/src/services/api.ts` — add billing API calls
 
-**Test:**
-1. Create Stripe test prices in Stripe dashboard.
-2. Upload 3 calls on free plan → 4th returns 402 with upgrade CTA.
-3. Click Upgrade → Stripe Checkout → test card 4242 4242 4242 4242.
-4. Stripe fires `checkout.session.completed` webhook →
-   subscription row created → 4th upload now succeeds.
-5. `GET /billing/status` returns `{plan: "pro", calls_used: 4}`.
+### Test
+
+1. Create Pro product in Dodo test dashboard.
+2. Click Upgrade → Dodo Checkout → complete with test card.
+3. Dodo fires `subscription.active` webhook → subscription row
+   created with `plan = 'pro'`.
+4. `GET /billing/status` returns `{plan: "pro", status: "active"}`.
+
+### Deferred (add after pricing model decision)
+
+- Usage enforcement (`_assert_call_limit` or `_assert_seat_limit`
+  in `sales_service.py`)
+- Usage counters in `subscriptions` table
+- HTTP 402 handling in frontend upload flow
 
 ---
 
 ## Item 5 — UI Fixes + Dashboard
 
+**Full plan: `python/docs/UI_FIXES_PLAN.md`**
+
 **Goal:** Polish the existing UI so the product looks production-ready
-when shared with paying customers.
-
-### Alternatives Considered
-
-**A — Full redesign before launch (rejected)**
-Tempting but high-risk. The current design is clean and functional.
-Redesigning before you have real user feedback means optimizing for
-assumptions. Ship the current design, collect feedback, then redesign
-with evidence.
-
-**B — UI polish before Stripe (rejected in this ordering)**
-We deliberately put UI last. A polished interface over a broken
-payment flow is lipstick on a product that can't monetize. Get the
-critical paths (integrations, share, payment) working first, then
-invest in polish.
-
-### What to build
-
-#### 5a — Stats Header Cards
-
-Computed client-side from the existing `calls` array — no new API:
-
-```
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│  Total Calls │ │  Avg Rep     │ │  Avg Lead    │ │  This Week   │
-│     24       │ │  Score  71   │ │  Score  68   │ │     3 calls  │
-└──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
-```
-
-#### 5b — Filter Tabs
-
-Replace the "X analyzed · Y processing" paragraph with tab pills:
-`[All (24)]  [Analyzed (22)]  [Processing (2)]  [Failed (0)]`
-
-#### 5c — Rep Column Fix
-
-The "Rep" column currently shows "—" for every call. Extract a
-display name from `audio_filename` (e.g., `john_smith_2024.wav` →
-"John Smith"). Fall back to "Unknown Rep".
-
-#### 5d — AnalysisView Action Bar
-
-Add a persistent action row below the blue banner (stubs wired in
-Items 2 and 3 are already live by now):
-
-```
-[⬇ Download ▾]   [↗ Share]   [▶ Play Recording]
-```
-
-### Files to modify
-
-- `ui/wireframe/src/components/CallDashboard.tsx` — stats cards,
-  filter tabs, rep column
-- `ui/wireframe/src/components/AnalysisView.tsx` — action bar
-
-**Test:** Start app with real call data. Verify stats are correct,
-filters work, badges appear, action bar renders.
+when shared with paying customers. Covers LLM-generated call names
+(inline-editable), a dedicated profile page, stats cards, filter
+tabs, rep column fix, and the AnalysisView action bar.
 
 ---
 
@@ -748,5 +692,5 @@ Item 5 is the only one with explicit dependencies on earlier items.
 | 2 | `ShareModal.tsx`, `SharedAnalysisPage.tsx`, `003_share_tokens.sql` | `App.tsx`, `sales_service.py`, `database.py`, `api.ts` |
 | 3 | — | `sales_service.py`, `database.py`, `AnalysisView.tsx`, `api.ts` |
 | 4 | `stripe_client.py`, `billing_service.py`, `PricingPage.tsx`, `BillingPage.tsx`, `005_billing.sql` | `main.py`, `sales_service.py`, `database.py`, `App.tsx`, `api.ts` |
-| 5 | — | `CallDashboard.tsx`, `AnalysisView.tsx` |
+| 5 | See `UI_FIXES_PLAN.md` | See `UI_FIXES_PLAN.md` |
 | 6 | `006_video.sql` | `attendee_service.py`, `sales_service.py`, `database.py`, `AnalysisView.tsx` |

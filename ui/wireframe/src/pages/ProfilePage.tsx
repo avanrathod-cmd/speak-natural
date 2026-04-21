@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle, CreditCard } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiService } from '../services/api';
 
@@ -176,6 +176,17 @@ export function ProfilePage() {
               )}
             </div>
           </div>
+        </div>
+
+        <div className="px-6 py-5 border-b border-gray-100">
+          <button
+            onClick={() => navigate('/billing')}
+            className="flex items-center gap-2 text-sm text-gray-700
+              hover:text-gray-900 font-medium"
+          >
+            <CreditCard className="w-4 h-4" />
+            Billing &amp; Team
+          </button>
         </div>
 
         <div className="px-6 py-4">

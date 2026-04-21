@@ -93,6 +93,8 @@ class CallListItemResponse(BaseModel):
     lead_score: Optional[int] = None
     engagement_level: Optional[str] = None
     customer_sentiment: Optional[str] = None
+    rep_id: Optional[str] = None
+    rep_name: Optional[str] = None
 
 
 class CallUpdateRequest(BaseModel):

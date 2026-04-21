@@ -19,7 +19,11 @@ import { apiService } from './services/api';
 import { LandingPage } from './pages/LandingPage';
 import { GuestFlowPage } from './pages/GuestFlowPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { PricingPage } from './pages/PricingPage';
+import { BillingPage } from './pages/BillingPage';
+import { JoinPage, PENDING_INVITE_KEY } from './pages/JoinPage';
 import {
+  BillingStatus,
   SalesCallListItem,
   SalesCallAnalysis,
   SalesCallAnalysisResponse,
@@ -56,6 +60,7 @@ export default function App() {
   const location = useLocation();
 
   const [calls, setCalls] = useState<SalesCallListItem[]>([]);
+  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
   const [step, setStep] = useState(0);
   const [processingActive, setProcessingActive] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -68,20 +73,45 @@ export default function App() {
     );
   }
 
-  const loadCalls = useCallback(async () => {
+  const loadCalls = useCallback(async (repId?: string) => {
     const token = await getAccessToken();
     if (!token) return;
     try {
-      const data = await apiService.listSalesCalls(token);
+      const data = await apiService.listSalesCalls(token, repId);
       setCalls(data);
     } catch (e) {
       console.error('Failed to load calls:', e);
     }
   }, [getAccessToken]);
 
+  const loadBillingStatus = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const status = await apiService.getBillingStatus(token);
+      setBillingStatus(status);
+    } catch (e) {
+      console.error('Failed to load billing status:', e);
+    }
+  }, [getAccessToken]);
+
   useEffect(() => {
-    if (user) loadCalls();
-  }, [user, loadCalls]);
+    if (!user) return;
+    loadCalls();
+    loadBillingStatus();
+
+    // Accept a pending invite carried over from the /join flow
+    const pendingToken = localStorage.getItem(PENDING_INVITE_KEY);
+    if (pendingToken) {
+      getAccessToken().then((token) => {
+        if (!token) return;
+        apiService
+          .acceptInvite(pendingToken, token)
+          .catch(console.error)
+          .finally(() => localStorage.removeItem(PENDING_INVITE_KEY));
+      });
+    }
+  }, [user, loadCalls, loadBillingStatus, getAccessToken]);
 
   useEffect(() => {
     if (!user) return;
@@ -109,6 +139,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/try/*" element={<GuestFlowPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/join/:token" element={<JoinPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     );
@@ -225,8 +257,10 @@ export default function App() {
             element={
               <CallDashboard
                 calls={calls}
+                billingStatus={billingStatus}
                 onOpenCall={(c) => navigate(`/calls/${c.call_id}`)}
                 onCallNameUpdate={handleCallNameUpdate}
+                onRepFilter={loadCalls}
               />
             }
           />
@@ -255,6 +289,12 @@ export default function App() {
             }
           />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route
+            path="/pricing"
+            element={<PricingPage billingStatus={billingStatus} />}
+          />
+          <Route path="/billing" element={<BillingPage />} />
+          <Route path="/join/:token" element={<JoinPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>

@@ -1,331 +1,132 @@
-# Google Cloud Deployment Guide
+# SpeakRight — Deployment Guide
 
-This guide covers deploying SpeakRight to Google Cloud using Cloud Run.
+## Production (Railway)
 
-## Table of Contents
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Manual Deployment](#manual-deployment)
-- [Important Notes](#important-notes)
-- [Storage Considerations](#storage-considerations)
-- [Monitoring & Debugging](#monitoring--debugging)
+The backend deploys automatically on every push to `master` via
+Railway's GitHub integration. The `python/railway.toml` config
+points Railway at the Python Dockerfile.
 
-## Prerequisites
-
-1. **Google Cloud SDK**: Install the gcloud CLI
-   ```bash
-   brew install --cask google-cloud-sdk
-   ```
-
-2. **Google Cloud Project**: Create a project at https://console.cloud.google.com
-
-3. **Environment Variables**: Have your API keys ready in `python/.env`:
-   - AWS credentials (for S3 storage)
-   - Anthropic API key
-   - OpenAI API key
-   - ElevenLabs API key
-   - Supabase credentials (URL, Anon Key, JWT Secret)
-
-## Quick Start
-
-**TL;DR - Three Commands to Deploy:**
+### Manual deploy via CLI
 
 ```bash
-export GCP_PROJECT_ID="your-project-id" && gcloud config set project $GCP_PROJECT_ID
-./setup-secrets.sh    # One-time: Create secrets from python/.env
-./deploy.sh           # Deploy backend and frontend to Cloud Run
+# Install Railway CLI if needed
+npm install -g @railway/cli
+
+# Login
+railway login
+
+# Deploy from the python/ directory
+cd python && railway up
 ```
 
-### 1. Set Up Environment
+### Environment variables
 
-```bash
-# Login to Google Cloud
-gcloud auth login
+Set these in the Railway dashboard under your service → Variables:
 
-# Set your project ID
-export GCP_PROJECT_ID="your-project-id"
-export GCP_REGION="us-central1"  # or your preferred region
+```
+# AWS
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_DEFAULT_REGION=ap-south-1
+S3_BUCKET_NAME=speach-analyzer
 
-# Set project
-gcloud config set project $GCP_PROJECT_ID
+# Supabase
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_JWT_SECRET=
+SUPABASE_SERVICE_ROLE_KEY=
+
+# LLM
+GEMINI_API_KEY=
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-2.0-flash
+
+# Attendee.dev
+ATTENDEE_API_KEY=
+ATTENDEE_WEBHOOK_SECRET=
+
+# Google OAuth (for calendar linking)
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=https://<your-railway-domain>/attendee/auth/google/callback
+
+# App URLs
+BASE_URL=https://<your-railway-domain>
+FRONTEND_URL=https://<your-frontend-domain>
+OAUTH_STATE_SECRET=
+
+# CORS
+ALLOWED_ORIGINS=https://<your-frontend-domain>
 ```
 
-### 2. Create Secrets
-
-**Option A: Automated Setup (Recommended)**
-
-If you have a `python/.env` file with all your credentials:
+### View logs
 
 ```bash
-# Run the automated setup script
-./setup-secrets.sh
+railway logs
 ```
 
-This script will read your `.env` file and automatically create/update all secrets in Google Cloud Secret Manager.
+---
 
-**Option B: Manual Setup**
+## Local Development + Webhook Testing
 
-```bash
-# Create secrets for sensitive environment variables
+Attendee webhooks require a publicly reachable URL. Use the
+included `cloudflared` binary to tunnel localhost to the internet.
 
-# AWS Credentials (for S3 storage)
-echo -n "YOUR_AWS_ACCESS_KEY" | gcloud secrets create aws-access-key --data-file=-
-echo -n "YOUR_AWS_SECRET_KEY" | gcloud secrets create aws-secret-key --data-file=-
-
-# AI API Keys
-echo -n "YOUR_ANTHROPIC_KEY" | gcloud secrets create anthropic-api-key --data-file=-
-echo -n "YOUR_OPENAI_KEY" | gcloud secrets create openai-api-key --data-file=-
-echo -n "YOUR_ELEVENLABS_KEY" | gcloud secrets create elevenlabs-api-key --data-file=-
-
-# Supabase Authentication (Required)
-echo -n "YOUR_SUPABASE_URL" | gcloud secrets create supabase-url --data-file=-
-echo -n "YOUR_SUPABASE_ANON_KEY" | gcloud secrets create supabase-anon-key --data-file=-
-echo -n "YOUR_SUPABASE_JWT_SECRET" | gcloud secrets create supabase-jwt-secret --data-file=-
-```
-
-**Finding Your Credentials:**
-- **Supabase**: Project Settings → API
-  - URL: Project URL
-  - Anon Key: anon/public key
-  - JWT Secret: JWT Secret
-- **AWS**: IAM Console → Users → Security Credentials
-- **AI APIs**: Check respective provider dashboards
-
-### 3. Deploy with Script
+### 1. Start the backend
 
 ```bash
-# Make script executable
-chmod +x deploy.sh
-
-# Run deployment
-./deploy.sh
-```
-
-The script will:
-- Verify authentication
-- Enable required APIs
-- Check for required secrets
-- Deploy backend API
-- Deploy frontend with backend URL
-- Display deployment URLs
-
-## Manual Deployment
-
-### Backend API
-
-```bash
-# Navigate to Python directory
 cd python
-
-# Submit build and deploy
-gcloud builds submit \
-  --config cloudbuild.yaml \
-  --substitutions=_REGION="us-central1"
-
-# Get backend URL
-gcloud run services describe speakright-api \
-  --region us-central1 \
-  --format='value(status.url)'
+uv run uvicorn api.main:app --reload --port 8000
 ```
 
-### Frontend
+### 2. Start the cloudflared tunnel (separate terminal)
 
 ```bash
-# Navigate to frontend directory
-cd ui/wireframe
-
-# Get backend URL from previous step
-BACKEND_URL="https://speakright-api-XXXXXXXXXX.a.run.app"
-
-# Submit build and deploy
-gcloud builds submit \
-  --config cloudbuild.yaml \
-  --substitutions=_REGION="us-central1",_API_URL="$BACKEND_URL"
-
-# Get frontend URL
-gcloud run services describe speakright-frontend \
-  --region us-central1 \
-  --format='value(status.url)'
+# From the project root
+./cloudflared tunnel --url http://localhost:8000
 ```
 
-## Important Notes
-
-### Platform Architecture
-All Docker images are configured for `linux/amd64` architecture to ensure compatibility with Google Cloud infrastructure. This prevents issues when building on ARM-based machines (M1/M2 Macs).
-
-### CORS Configuration
-The backend currently allows all origins (`allow_origins=["*"]`). For production, update this in `python/api/main.py`:
-
-```python
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://your-frontend-domain.com",
-        "https://speakright-frontend-xyz.a.run.app"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+Cloudflare prints a public URL like:
+```
+https://xyz-something.trycloudflare.com
 ```
 
-## Storage Considerations
+### 3. Point Attendee at your local server
 
-### Ephemeral Storage on Cloud Run
-
-**IMPORTANT**: Cloud Run containers have ephemeral file systems. All files in `/tmp/speak-right` are:
-- **Temporary**: Lost when the container scales down or restarts
-- **Instance-specific**: Not shared between container instances
-- **Limited**: Max 1GB of writable storage
-
-### Current Behavior
-
-1. **Uploaded audio files** → Saved to `/tmp` → Processed → Uploaded to S3
-2. **Analysis results** → Saved to `/tmp` → Some uploaded to S3
-3. **Session metadata** → Saved to `/tmp` (JSON files) → **NOT uploaded to S3**
-4. **Generated segments** → Saved to `/tmp` → Uploaded to S3 on-demand
-5. **Cached waveforms** → Saved to `/tmp` → **NOT persisted**
-
-### Implications
-
-- ✅ **Works for**: Single-request processing (upload → process → download)
-- ⚠️ **Limited**: Session persistence across container restarts
-- ❌ **Fails for**: Long-term session storage, multi-request workflows
-
-### Solutions
-
-**Option 1: Use S3 as Primary Storage** (Recommended for now)
-The app already uploads most files to S3. Sessions work as long as:
-- Users complete their workflow in one session
-- Container doesn't restart mid-processing
-
-**Option 2: Migrate to Google Cloud Storage**
-Replace S3 with GCS for better integration:
-- Lower latency within Google Cloud
-- Better cost for intra-cloud transfers
-- Simpler IAM integration
-
-**Option 3: Add Database for Metadata**
-Use Cloud SQL or Firestore for session metadata instead of local JSON files.
-
-### Recommended Architecture (Future)
-
+In `python/.env`, set:
 ```
-User Upload → Cloud Run (Processing) → GCS (Permanent Storage)
-                ↓
-          Cloud SQL (Metadata)
+BASE_URL=https://xyz-something.trycloudflare.com
 ```
 
-## Monitoring & Debugging
+Then restart the backend (`uv run uvicorn ...`). The webhook
+handler at `/attendee/webhook` is now reachable from Attendee.
 
-### View Logs
+### 4. Watch logs
 
-```bash
-# Stream backend logs
-gcloud run logs tail speakright-api --region=us-central1
+With `--reload` on, logs stream directly to the terminal where
+you started uvicorn. Look for:
 
-# Stream frontend logs
-gcloud run logs tail speakright-frontend --region=us-central1
+```
+# Bot scheduled successfully:
+INFO  Scheduled bot <id> for event '<name>'
+
+# Webhook received but no supported meeting found:
+INFO  calendar.events_update for <id> — no new Google Meets to schedule
+
+# Recording ingested:
+INFO  Starting analysis for bot <id> (call <id>)
+INFO  Finished processing call <id>
 ```
 
-### Check Service Status
+### Notes
 
-```bash
-# Backend status
-gcloud run services describe speakright-api --region=us-central1
+- The cloudflared URL changes every time you restart the tunnel.
+  Every time it changes, you need to update two things:
+  1. `BASE_URL` in `python/.env` (restart the backend after)
+  2. The webhook URL in **Attendee dashboard → Settings → Webhooks**
+     — change it to `https://<new-url>/attendee/webhook`
 
-# Frontend status
-gcloud run services describe speakright-frontend --region=us-central1
-```
-
-### Update Services
-
-```bash
-# Update backend environment variables
-gcloud run services update speakright-api \
-  --region=us-central1 \
-  --set-env-vars="NEW_VAR=value"
-
-# Update frontend
-gcloud run services update speakright-frontend \
-  --region=us-central1 \
-  --set-env-vars="NEW_VAR=value"
-```
-
-### Scale Configuration
-
-```bash
-# Update scaling settings
-gcloud run services update speakright-api \
-  --region=us-central1 \
-  --min-instances=0 \
-  --max-instances=10 \
-  --concurrency=80 \
-  --cpu=2 \
-  --memory=2Gi
-```
-
-## Cost Optimization
-
-1. **Min instances**: Set to 0 to avoid charges when idle
-2. **Max instances**: Set limit to control costs (default: 10)
-3. **Memory**: Start with 1Gi for backend, 512Mi for frontend
-4. **CPU**: Use 1 CPU initially, scale up if needed
-
-### Estimated Costs (us-central1)
-
-- **Idle**: $0/month (min-instances=0)
-- **Light usage** (100 requests/day): ~$5-10/month
-- **Moderate usage** (1000 requests/day): ~$20-40/month
-
-*Note: Costs vary based on processing time and memory usage*
-
-## Troubleshooting
-
-### Build Fails
-
-```bash
-# Check Cloud Build logs
-gcloud builds list --limit=5
-gcloud builds log <BUILD_ID>
-```
-
-### Service Not Starting
-
-```bash
-# Check service logs
-gcloud run logs tail speakright-api --region=us-central1
-
-# Common issues:
-# 1. Missing secrets - verify all secrets exist
-# 2. Port mismatch - ensure app listens on $PORT (default: 8000)
-# 3. Health check fails - verify /health endpoint works
-```
-
-### Secrets Not Found
-
-```bash
-# List all secrets
-gcloud secrets list
-
-# Create missing secret
-echo -n "VALUE" | gcloud secrets create SECRET_NAME --data-file=-
-```
-
-## Security Best Practices
-
-1. **Never commit secrets** to version control
-2. **Use Secret Manager** for all sensitive data
-3. **Enable HTTPS** (automatic with Cloud Run)
-4. **Configure CORS** properly for production
-5. **Add authentication** for sensitive endpoints
-6. **Regular updates** to dependencies and base images
-
-## Next Steps
-
-After deployment:
-1. Test the application with the provided URLs
-2. Set up custom domain (optional)
-3. Configure CDN (optional)
-4. Set up monitoring alerts
-5. Plan for database/storage migration if needed
+  The Attendee dashboard webhook covers `calendar.events_update`
+  (new meetings → bot scheduling). Per-bot `bot.state_change`
+  webhooks are set at scheduling time, so bots created after the
+  URL update will call the correct endpoint automatically.

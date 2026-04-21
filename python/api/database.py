@@ -142,7 +142,7 @@ class SalesDatabaseService(DatabaseService):
         self.client.table("user_profiles").upsert({
             "id": user_id,
             "org_id": org_id,
-            "role": "manager",
+            "role": "owner",
         }).execute()
         return org_id
 

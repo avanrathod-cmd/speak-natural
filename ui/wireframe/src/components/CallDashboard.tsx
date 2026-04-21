@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Pencil } from 'lucide-react';
-import { SalesCallListItem } from '../types';
+import { BillingStatus, RepSummary, SalesCallListItem } from '../types';
 import {
   Badge,
   ENGAGEMENT_COLORS,
@@ -34,13 +34,22 @@ function formatDuration(item: SalesCallListItem): string {
 
 function DashboardRow({
   call,
+  showRep,
+  reps,
   onClick,
   onSaveName,
 }: {
   call: SalesCallListItem;
+  showRep?: boolean;
+  reps?: RepSummary[];
   onClick: () => void;
   onSaveName: (callId: string, name: string) => Promise<void>;
 }) {
+  function repLabel() {
+    if (!call.rep_id || !reps) return '—';
+    const rep = reps.find((r) => r.user_id === call.rep_id);
+    return rep?.full_name ?? rep?.email ?? call.rep_id.slice(0, 8);
+  }
   const isProcessing = call.status === 'processing';
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
@@ -119,6 +128,11 @@ function DashboardRow({
           {formatCallDate(call)} · {formatDuration(call)}
         </p>
       </td>
+      {showRep && (
+        <td className="px-6 py-4 text-center">
+          <span className="text-sm text-gray-600">{repLabel()}</span>
+        </td>
+      )}
       <td className="px-6 py-4 text-center">
         {isProcessing ? (
           <span className="text-xs text-gray-400 italic">Processing…</span>
@@ -172,16 +186,43 @@ function DashboardRow({
 
 export function CallDashboard({
   calls,
+  billingStatus,
   onOpenCall,
   onCallNameUpdate,
+  onRepFilter,
 }: {
   calls: SalesCallListItem[];
+  billingStatus?: BillingStatus | null;
   onOpenCall: (call: SalesCallListItem) => void;
   onCallNameUpdate: (callId: string, name: string) => void;
+  onRepFilter?: (repId?: string) => void;
 }) {
   const { getAccessToken } = useAuth();
   const analyzed = calls.filter((c) => c.status === 'completed').length;
   const processing = calls.filter((c) => c.status === 'processing').length;
+
+  const isAdmin =
+    billingStatus?.role === 'owner' || billingStatus?.role === 'manager';
+
+  const [reps, setReps] = useState<RepSummary[]>([]);
+  const [selectedRep, setSelectedRep] = useState<string>('');
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    getAccessToken().then((token) => {
+      if (!token) return;
+      apiService.getReps(token).then(setReps).catch(console.error);
+    });
+  }, [isAdmin, getAccessToken]);
+
+  function handleRepChange(repId: string) {
+    setSelectedRep(repId);
+    onRepFilter?.(repId || undefined);
+  }
+
+  function repLabel(rep: RepSummary) {
+    return rep.full_name ?? rep.email ?? rep.user_id;
+  }
 
   async function handleSaveName(callId: string, name: string) {
     const token = await getAccessToken();
@@ -194,29 +235,46 @@ export function CallDashboard({
     }
   }
 
+  const headers = isAdmin
+    ? ['Call', 'Rep', 'Rep Score', 'Lead Score', 'Engagement', 'Sentiment']
+    : ['Call', 'Rep Score', 'Lead Score', 'Engagement', 'Sentiment'];
+
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100
       overflow-hidden"
     >
-      <div className="px-6 py-5 border-b border-gray-100">
-        <h2 className="text-base font-semibold text-gray-900">
-          Sales Calls
-        </h2>
-        <p className="text-sm text-gray-400 mt-0.5">
-          {analyzed} analyzed · {processing} processing
-        </p>
+      <div className="px-6 py-5 border-b border-gray-100 flex items-center
+        justify-between gap-4"
+      >
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">
+            Sales Calls
+          </h2>
+          <p className="text-sm text-gray-400 mt-0.5">
+            {analyzed} analyzed · {processing} processing
+          </p>
+        </div>
+        {isAdmin && reps.length > 0 && (
+          <select
+            value={selectedRep}
+            onChange={(e) => handleRepChange(e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5
+              outline-none focus:ring-2 focus:ring-blue-500 text-gray-700"
+          >
+            <option value="">All reps</option>
+            {reps.map((r) => (
+              <option key={r.user_id} value={r.user_id}>
+                {repLabel(r)}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="text-left">
-              {[
-                'Call',
-                'Rep Score',
-                'Lead Score',
-                'Engagement',
-                'Sentiment',
-              ].map((h, i) => (
+              {headers.map((h, i) => (
                 <th
                   key={h}
                   className={`px-6 py-3 text-xs font-medium text-gray-400
@@ -231,7 +289,7 @@ export function CallDashboard({
             {calls.length === 0 ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={headers.length}
                   className="px-6 py-12 text-center text-sm text-gray-400"
                 >
                   No calls yet. Upload one to get started.
@@ -242,6 +300,8 @@ export function CallDashboard({
                 <DashboardRow
                   key={call.call_id}
                   call={call}
+                  showRep={isAdmin}
+                  reps={reps}
                   onClick={() => {
                     if (call.status === 'completed') onOpenCall(call);
                   }}
