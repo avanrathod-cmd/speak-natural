@@ -4,7 +4,7 @@ Audio processing utilities for the sales call pipeline.
 Handles:
 1. WAV format conversion (ffmpeg)
 2. S3 upload
-3. AWS Transcribe transcription
+3. Deepgram transcription
 """
 
 import os
@@ -31,8 +31,9 @@ load_dotenv()
 current_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(current_dir))
 
-from speach_to_text.transcribe import read_transcription
 from utils.aws_utils import s3_client
+from utils.deepgram_client import transcribe_from_s3
+from models.transcript import Transcript
 
 
 def _is_valid_wav(file_path: str) -> bool:
@@ -151,22 +152,19 @@ class AudioProcessorService:
         print(f"✓ Upload complete: {s3_uri}")
         return s3_uri
 
-    def transcribe_audio(self, s3_uri: str, job_name: str) -> Dict:
+    def transcribe_audio(self, s3_uri: str, job_name: str) -> Transcript:
         """
-        Transcribe audio from S3 using AWS Transcribe.
+        Transcribe audio from S3 using Deepgram Nova-2.
 
         Args:
             s3_uri: S3 URI of the audio file
-            job_name: Unique transcription job name
+            job_name: Identifier used only for logging (no async job needed)
 
         Returns:
-            Transcription data as dict
+            Typed Transcript
         """
-        print(f"Starting transcription job: {job_name}")
-        print(f"Audio URI: {s3_uri}")
-
-        transcription_data = read_transcription(job_name, s3_uri)
-
-        print(f"✓ Transcription complete")
-        return transcription_data
+        print(f"Transcribing: {s3_uri}")
+        transcript = transcribe_from_s3(s3_uri)
+        print("✓ Transcription complete")
+        return transcript
 
