@@ -49,7 +49,8 @@ Return a JSON object with exactly these fields:
   "customer_interests": ["interest 1", "interest 2"],
   "objections_raised": ["objection 1", "objection 2"],
   "buying_signals": ["signal 1", "signal 2"],
-  "suggested_next_steps": ["step 1", "step 2"]
+  "suggested_next_steps": ["step 1", "step 2"],
+  "call_name": "<4-8 word title case label, e.g. 'Acme Corp Discovery — Apr 15'>"
 }}"""
 
 

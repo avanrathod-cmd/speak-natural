@@ -3,15 +3,16 @@
  * and Customer / Lead tab.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   CheckCircle,
   TrendingUp,
   AlertCircle,
   ChevronRight,
   Clock,
-  User,
+  Pencil,
   Volume2,
+  Download,
 } from 'lucide-react';
 import { SalesCallAnalysis, SalesCallListItem } from '../types';
 import {
@@ -222,14 +223,82 @@ function CustomerTab({ a }: { a: Analysis }) {
 export function AnalysisView({
   analysis,
   selectedCall,
+  onCallNameUpdate,
 }: {
   analysis: Analysis;
   selectedCall: SalesCallListItem | null;
+  onCallNameUpdate?: (callId: string, name: string) => void;
 }) {
   const [tab, setTab] = useState<Tab>('rep');
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioError, setAudioError] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState('');
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const { getAccessToken } = useAuth();
+
+  useEffect(() => {
+    if (editingName) nameInputRef.current?.focus();
+  }, [editingName]);
+
+  function startEditName() {
+    const current =
+      selectedCall?.call_name ??
+      (selectedCall?.audio_filename
+        ? selectedCall.audio_filename
+            .replace(/\.[^.]+$/, '')
+            .replace(/[_-]/g, ' ')
+        : '');
+    setNameValue(current);
+    setEditingName(true);
+  }
+
+  async function commitName() {
+    const trimmed = nameValue.trim();
+    setEditingName(false);
+    if (!trimmed || !selectedCall?.call_id) return;
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      await apiService.updateCall(
+        selectedCall.call_id,
+        { call_name: trimmed },
+        token,
+      );
+      onCallNameUpdate?.(selectedCall.call_id, trimmed);
+    } catch (e) {
+      console.error('Failed to rename call:', e);
+    }
+  }
+
+  function handleNameKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') commitName();
+    if (e.key === 'Escape') setEditingName(false);
+  }
+
+  async function handleDownload() {
+    if (!selectedCall?.call_id) return;
+    setDownloading(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) return;
+      const blob = await apiService.exportCall(
+        selectedCall.call_id,
+        token,
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `speaknatural-${selectedCall.call_id}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download failed', err);
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   useEffect(() => {
     if (!selectedCall?.call_id) return;
@@ -255,12 +324,39 @@ export function AnalysisView({
       {/* Banner */}
       <div className="bg-blue-600 rounded-2xl p-6 text-white flex items-center justify-between">
         <div>
-          {selectedCall?.audio_filename && (
-            <p className="text-blue-300 text-xs font-medium mb-2 flex items-center gap-1.5">
-              <User className="w-3 h-3" />
-              {selectedCall.audio_filename.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ')}
-            </p>
-          )}
+          <div className="flex items-center gap-2 mb-2 group">
+            {editingName ? (
+              <input
+                ref={nameInputRef}
+                value={nameValue}
+                onChange={(e) => setNameValue(e.target.value)}
+                onBlur={commitName}
+                onKeyDown={handleNameKeyDown}
+                maxLength={100}
+                className="text-sm font-medium text-white bg-transparent
+                  border-b border-blue-300 outline-none w-64"
+              />
+            ) : (
+              <>
+                <p className="text-blue-100 text-sm font-medium capitalize">
+                  {selectedCall?.call_name ??
+                    (selectedCall?.audio_filename
+                      ? selectedCall.audio_filename
+                          .replace(/\.[^.]+$/, '')
+                          .replace(/[_-]/g, ' ')
+                      : '')}
+                </p>
+                <button
+                  onClick={startEditName}
+                  className="opacity-0 group-hover:opacity-100
+                    transition-opacity text-blue-300 hover:text-white"
+                  title="Rename"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              </>
+            )}
+          </div>
           <p className="text-blue-200 text-sm font-medium mb-1">
             Overall Rep Score
           </p>
@@ -268,6 +364,14 @@ export function AnalysisView({
           <p className="text-blue-200 text-sm mt-1">out of 100</p>
         </div>
         <div className="text-right space-y-2">
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="flex items-center gap-1.5 text-xs text-blue-200 hover:text-white disabled:opacity-50 ml-auto"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {downloading ? 'Downloading…' : 'Download Transcript'}
+          </button>
           <div className="flex items-center gap-2 justify-end">
             <span className="text-blue-200 text-sm">Lead</span>
             <span
