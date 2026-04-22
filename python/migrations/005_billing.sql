@@ -71,3 +71,4 @@ COMMENT ON COLUMN org_invites.accepted_at IS
 
 CREATE INDEX ON org_invites(token);
 CREATE INDEX ON org_invites(org_id);
+

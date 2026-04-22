@@ -105,3 +105,61 @@ class CallUpdateResponse(BaseModel):
     call_id: str
     call_name: str
 
+
+# ---------------------------------------------------------------------------
+# Billing models
+# ---------------------------------------------------------------------------
+
+class CheckoutRequest(BaseModel):
+    plan: str
+
+
+class CheckoutResponse(BaseModel):
+    checkout_url: str
+
+
+class BillingStatusResponse(BaseModel):
+    plan: str
+    status: str
+    role: str
+    seat_limit: int
+    seats_used: int
+    period_end: Optional[str] = None
+
+
+class PortalResponse(BaseModel):
+    portal_url: str
+
+
+# ---------------------------------------------------------------------------
+# Team models
+# ---------------------------------------------------------------------------
+
+class InviteRequest(BaseModel):
+    email: str
+    role: str = "rep"
+
+
+class InviteResponse(BaseModel):
+    invite_url: str
+
+
+class InviteInfoResponse(BaseModel):
+    org_name: str
+    invited_email: str
+    role: str
+
+
+class TeamMember(BaseModel):
+    user_id: str
+    email: Optional[str] = None
+    role: str
+    full_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class RepSummary(BaseModel):
+    user_id: str
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+
