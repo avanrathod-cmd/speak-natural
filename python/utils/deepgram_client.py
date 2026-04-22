@@ -1,5 +1,5 @@
 import os
-from deepgram import DeepgramClient, PrerecordedOptions, UrlSource
+from deepgram import DeepgramClient
 from utils.aws_utils import s3_client
 from models.transcript import (
     Transcript,
@@ -13,7 +13,7 @@ from models.transcript import (
 
 _PRESIGN_EXPIRY = 600  # seconds
 
-_client = DeepgramClient(os.getenv("DEEPGRAM_API_KEY", ""))
+_client = DeepgramClient(api_key=os.getenv("DEEPGRAM_API_KEY", ""))
 
 
 def transcribe_from_s3(s3_uri: str) -> Transcript:
@@ -30,15 +30,13 @@ def transcribe_from_s3(s3_uri: str) -> Transcript:
         Params={"Bucket": bucket, "Key": key},
         ExpiresIn=_PRESIGN_EXPIRY,
     )
-    options = PrerecordedOptions(
+    response = _client.listen.v1.media.transcribe_url(
+        url=url,
         model="nova-3",
         language="multi",
         diarize=True,
         utterances=True,
         punctuate=True,
-    )
-    response = _client.listen.rest.v("1").transcribe_url(
-        UrlSource(url=url), options
     )
     return _normalize(response)
 
@@ -50,7 +48,10 @@ def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:
 
 
 def _normalize(response) -> Transcript:
-    words = response.results.channels[0].alternatives[0].words
+    # Utterance words carry speaker labels; channel words do not.
+    # Build both items and segments from utterances so speaker info
+    # is always present.
+    utterances = response.results.utterances or []
     items = [
         TranscriptItem(
             type="pronunciation",
@@ -58,20 +59,26 @@ def _normalize(response) -> Transcript:
             start_time=str(w.start),
             end_time=str(w.end),
             alternatives=[TranscriptAlternative(
-                content=w.word,
-                confidence=str(w.confidence),
+                content=w.word or "",
+                confidence=str(w.confidence or 0),
             )],
         )
-        for w in words
+        for u in utterances
+        for w in (u.words or [])
+        if w.word
     ]
     segments = [
         SpeakerSegment(
             speaker_label=f"spk_{u.speaker}",
             start_time=str(u.start),
             end_time=str(u.end),
-            items=[SegmentItem(start_time=str(w.start)) for w in u.words],
+            items=[
+                SegmentItem(start_time=str(w.start))
+                for w in (u.words or [])
+                if w.word
+            ],
         )
-        for u in response.results.utterances
+        for u in utterances
     ]
     return Transcript(
         results=TranscriptResults(
