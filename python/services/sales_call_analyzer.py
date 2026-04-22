@@ -6,6 +6,7 @@ rep performance + customer behavior analysis from a transcript.
 from typing import Any, Dict, List, Optional
 
 from utils.llm_client import call_llm
+from models.transcript import Transcript
 
 _SYSTEM = (
     "You are an expert sales coach and call analyst. "
@@ -56,9 +57,9 @@ Return a JSON object with exactly these fields:
 class SalesCallAnalyzerService:
     def identify_speakers(
         self,
-        transcript_data: Dict,
+        transcript_data: Transcript,
         rep_hint: Optional[str] = None) -> Dict[str, Any]:
-        
+
         """
         Identify the sales rep speaker from a transcript.
 
@@ -66,7 +67,7 @@ class SalesCallAnalyzerService:
         All other speakers are treated as customers.
 
         Args:
-            transcript_data: AWS Transcribe JSON dict
+            transcript_data: Typed Transcript
             rep_hint: Override speaker label, e.g. "spk_0"
 
         Returns:
@@ -75,15 +76,13 @@ class SalesCallAnalyzerService:
                 "customer_labels": ["spk_1"]
             }
         """
-        items = (
-            transcript_data.get("results", {}).get("items", [])
-        )
+        items = transcript_data.results.items
 
         word_counts: Dict[str, int] = {}
         for item in items:
-            if item.get("type") != "pronunciation":
+            if item.type != "pronunciation":
                 continue
-            label = item.get("speaker_label")
+            label = item.speaker_label
             if label:
                 word_counts[label] = word_counts.get(label, 0) + 1
 
@@ -107,14 +106,14 @@ class SalesCallAnalyzerService:
 
     def extract_speaker_turns(
         self,
-        transcript_data: Dict,
+        transcript_data: Transcript,
         speaker_map: Dict[str, Any],
     ) -> Dict[str, List[Dict]]:
         """
         Split the transcript into rep turns and customer turns.
 
         Args:
-            transcript_data: AWS Transcribe JSON dict
+            transcript_data: Typed Transcript
             speaker_map: Output of identify_speakers()
 
         Returns:
@@ -128,35 +127,33 @@ class SalesCallAnalyzerService:
         rep_label = speaker_map["salesperson_label"]
         customer_labels = set(speaker_map["customer_labels"])
 
-        results = transcript_data.get("results", {})
-        segments = (
-            results.get("speaker_labels", {}).get("segments", [])
-        )
+        results = transcript_data.results
+        segments = results.speaker_labels.segments
 
         # Build start_time → content map from results.items
         # (speaker_labels segments don't carry alternatives/content)
         content_by_start: Dict[str, str] = {}
-        for item in results.get("items", []):
-            if item.get("type") != "pronunciation":
+        for item in results.items:
+            if item.type != "pronunciation":
                 continue
-            st = item.get("start_time")
-            alts = item.get("alternatives", [])
-            if st and alts:
-                content_by_start[st] = alts[0].get("content", "")
+            if item.start_time and item.alternatives:
+                content_by_start[item.start_time] = (
+                    item.alternatives[0].content
+                )
 
         rep_turns: List[Dict] = []
         customer_turns: List[Dict] = []
         full_transcript: List[Dict] = []
 
         for segment in segments:
-            label = segment.get("speaker_label", "")
-            start = float(segment.get("start_time", 0))
-            end = float(segment.get("end_time", 0))
+            label = segment.speaker_label
+            start = float(segment.start_time)
+            end = float(segment.end_time)
 
             words = [
-                content_by_start[seg_item["start_time"]]
-                for seg_item in segment.get("items", [])
-                if seg_item.get("start_time") in content_by_start
+                content_by_start[seg_item.start_time]
+                for seg_item in segment.items
+                if seg_item.start_time in content_by_start
             ]
 
             if not words:
