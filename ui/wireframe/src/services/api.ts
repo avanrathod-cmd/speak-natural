@@ -75,17 +75,6 @@ class ApiService {
     return response.json();
   }
 
-  async exportCall(callId: string, token: string): Promise<Blob> {
-    const response = await fetch(
-      `${API_URL}/sales/calls/${callId}/export`,
-      { headers: await this.getHeaders(token) },
-    );
-    if (!response.ok) {
-      throw new Error(`Export failed: ${response.statusText}`);
-    }
-    return response.blob();
-  }
-
   async getCallAudio(callId: string, token: string): Promise<string> {
     const response = await fetch(
       `${API_URL}/sales/calls/${callId}/audio`,
@@ -108,22 +97,6 @@ class ApiService {
     });
     if (!response.ok) {
       throw new Error(`Zoom status check failed: ${response.statusText}`);
-    }
-    return response.json();
-  }
-
-  async updateCall(
-    callId: string,
-    patch: { call_name: string },
-    token: string,
-  ): Promise<{ call_id: string; call_name: string }> {
-    const response = await fetch(`${API_URL}/sales/calls/${callId}`, {
-      method: 'PATCH',
-      headers: await this.getHeaders(token),
-      body: JSON.stringify(patch),
-    });
-    if (!response.ok) {
-      throw new Error(`Update call failed: ${response.statusText}`);
     }
     return response.json();
   }

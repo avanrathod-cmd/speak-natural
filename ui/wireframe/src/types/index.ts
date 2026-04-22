@@ -34,7 +34,6 @@ export interface SalesCallListItem {
   source?: 'manual' | 'attendee';
   error?: string;
   audio_filename?: string;
-  call_name?: string;
   created_at?: string;
   duration_seconds?: number;
   overall_rep_score?: number;

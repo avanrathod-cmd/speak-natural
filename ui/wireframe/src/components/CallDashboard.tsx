@@ -1,7 +1,6 @@
 /** Dashboard table listing all sales calls with scores and status. */
 
-import { useState, useEffect, useRef } from 'react';
-import { Pencil } from 'lucide-react';
+import { User } from 'lucide-react';
 import { SalesCallListItem } from '../types';
 import {
   Badge,
@@ -9,8 +8,6 @@ import {
   SENTIMENT_COLORS,
   scoreColor,
 } from './ui';
-import { apiService } from '../services/api';
-import { useAuth } from '../contexts/AuthContext';
 
 function formatCallTitle(item: SalesCallListItem): string {
   return item.audio_filename
@@ -35,89 +32,38 @@ function formatDuration(item: SalesCallListItem): string {
 function DashboardRow({
   call,
   onClick,
-  onSaveName,
 }: {
   call: SalesCallListItem;
   onClick: () => void;
-  onSaveName: (callId: string, name: string) => Promise<void>;
 }) {
   const isProcessing = call.status === 'processing';
-  const [editing, setEditing] = useState(false);
-  const [editValue, setEditValue] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
-
-  function startEdit(e: React.MouseEvent) {
-    e.stopPropagation();
-    setEditValue(call.call_name ?? formatCallTitle(call));
-    setEditing(true);
-  }
-
-  async function commit() {
-    const trimmed = editValue.trim();
-    setEditing(false);
-    if (trimmed && trimmed !== (call.call_name ?? formatCallTitle(call))) {
-      await onSaveName(call.call_id, trimmed);
-    }
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter') commit();
-    if (e.key === 'Escape') setEditing(false);
-  }
-
-  const displayName = call.call_name ?? formatCallTitle(call);
-
   return (
     <tr
-      className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer
-        transition-colors group"
+      className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
       onClick={onClick}
     >
       <td className="px-6 py-4">
         <div className="flex items-center gap-2">
-          {editing ? (
-            <input
-              ref={inputRef}
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              onBlur={commit}
-              onKeyDown={handleKeyDown}
-              onClick={(e) => e.stopPropagation()}
-              maxLength={100}
-              className="text-sm font-medium text-gray-900 border-b
-                border-blue-400 outline-none bg-transparent w-full
-                max-w-xs"
-            />
-          ) : (
-            <p className="text-sm font-medium text-gray-900 capitalize">
-              {displayName}
-            </p>
-          )}
+          <p className="text-sm font-medium text-gray-900 capitalize">
+            {formatCallTitle(call)}
+          </p>
           {call.source === 'attendee' && (
-            <span className="text-xs font-medium bg-purple-100
-              text-purple-700 px-1.5 py-0.5 rounded flex-shrink-0"
-            >
+            <span className="text-xs font-medium bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">
               Bot
             </span>
-          )}
-          {!isProcessing && !editing && (
-            <button
-              onClick={startEdit}
-              className="opacity-0 group-hover:opacity-100 transition-opacity
-                text-gray-400 hover:text-gray-600 flex-shrink-0"
-              title="Rename"
-            >
-              <Pencil className="w-3 h-3" />
-            </button>
           )}
         </div>
         <p className="text-xs text-gray-400 mt-0.5">
           {formatCallDate(call)} · {formatDuration(call)}
         </p>
+      </td>
+      <td className="px-6 py-4">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+            <User className="w-3.5 h-3.5 text-gray-500" />
+          </div>
+          <span className="text-sm text-gray-400 italic">—</span>
+        </div>
       </td>
       <td className="px-6 py-4 text-center">
         {isProcessing ? (
@@ -143,12 +89,8 @@ function DashboardRow({
       </td>
       <td className="px-6 py-4 text-center">
         {isProcessing ? (
-          <span className="inline-flex items-center gap-1 text-xs px-2
-            py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500
-              animate-pulse block"
-            />
+          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse block" />
             Processing
           </span>
         ) : call.engagement_level ? (
@@ -173,31 +115,15 @@ function DashboardRow({
 export function CallDashboard({
   calls,
   onOpenCall,
-  onCallNameUpdate,
 }: {
   calls: SalesCallListItem[];
   onOpenCall: (call: SalesCallListItem) => void;
-  onCallNameUpdate: (callId: string, name: string) => void;
 }) {
-  const { getAccessToken } = useAuth();
   const analyzed = calls.filter((c) => c.status === 'completed').length;
   const processing = calls.filter((c) => c.status === 'processing').length;
 
-  async function handleSaveName(callId: string, name: string) {
-    const token = await getAccessToken();
-    if (!token) return;
-    try {
-      await apiService.updateCall(callId, { call_name: name }, token);
-      onCallNameUpdate(callId, name);
-    } catch (e) {
-      console.error('Failed to rename call:', e);
-    }
-  }
-
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100
-      overflow-hidden"
-    >
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
       <div className="px-6 py-5 border-b border-gray-100">
         <h2 className="text-base font-semibold text-gray-900">
           Sales Calls
@@ -212,6 +138,7 @@ export function CallDashboard({
             <tr className="text-left">
               {[
                 'Call',
+                'Rep',
                 'Rep Score',
                 'Lead Score',
                 'Engagement',
@@ -219,8 +146,9 @@ export function CallDashboard({
               ].map((h, i) => (
                 <th
                   key={h}
-                  className={`px-6 py-3 text-xs font-medium text-gray-400
-                    uppercase tracking-wide ${i >= 1 ? 'text-center' : ''}`}
+                  className={`px-6 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide ${
+                    i >= 2 ? 'text-center' : ''
+                  }`}
                 >
                   {h}
                 </th>
@@ -231,7 +159,7 @@ export function CallDashboard({
             {calls.length === 0 ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="px-6 py-12 text-center text-sm text-gray-400"
                 >
                   No calls yet. Upload one to get started.
@@ -245,7 +173,6 @@ export function CallDashboard({
                   onClick={() => {
                     if (call.status === 'completed') onOpenCall(call);
                   }}
-                  onSaveName={handleSaveName}
                 />
               ))
             )}

@@ -146,7 +146,6 @@ def schedule_bot_for_event(
     calendar_event_id: str,
     webhook_url: str,
     calendar_id: str | None = None,
-    event_name: str | None = None,
 ) -> AttendeeBotData:
     """
     Create an Attendee bot for a specific calendar event.
@@ -183,8 +182,6 @@ def schedule_bot_for_event(
     }
     if calendar_id:
         payload["metadata"] = {"calendar_id": calendar_id}
-        if event_name:
-            payload["metadata"]["event_name"] = event_name
 
     resp = requests.post(f"{_ATTENDEE_BASE_URL}/bots", headers=_HEADERS, json=payload)
     resp.raise_for_status()

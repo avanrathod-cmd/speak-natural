@@ -128,9 +128,7 @@ async def google_auth_callback(
     """
     result = _verify_state(state)
     if not result:
-        raise HTTPException(
-            status_code=400, detail="Invalid or expired state"
-        )
+        raise HTTPException(status_code=400, detail="Invalid or expired state")
     user_id, code_verifier = result
 
     flow = Flow.from_client_config(
@@ -148,16 +146,13 @@ async def google_auth_callback(
             status_code=400,
             detail=(
                 "Google did not return a refresh token. "
-                "Revoke app access at myaccount.google.com "
-                "and try again."
+                "Revoke app access at myaccount.google.com and try again."
             ),
         )
 
     user_email = _db.get_user_email(user_id)
     if not user_email:
-        raise HTTPException(
-            status_code=400, detail="User not found"
-        )
+        raise HTTPException(status_code=400, detail="User not found")
 
     try:
         calendar_data = link_google_calendar(
@@ -167,20 +162,11 @@ async def google_auth_callback(
             user_email=user_email,
         )
     except requests.HTTPError as e:
-        error_body = (
-            e.response.json() if e.response.content else {}
-        )
+        error_body = e.response.json() if e.response.content else {}
         if error_body.get("deduplication_key"):
             # Calendar already exists on Attendee — push the new
             # refresh token so Attendee can reconnect.
-            rows = _db.get_rows(
-                table="user_profiles",
-                filters={"id": user_id},
-                select="attendee_calendar_id",
-            )
-            existing_id = (
-                rows[0]["attendee_calendar_id"] if rows else None
-            )
+            existing_id = _db.get_attendee_calendar_id(user_id)
             if existing_id:
                 try:
                     update_calendar_credentials(
@@ -206,17 +192,11 @@ async def google_auth_callback(
             )
         raise HTTPException(
             status_code=502,
-            detail=(
-                f"Attendee calendar link failed: "
-                f"{e.response.text}"
-            ),
+            detail=f"Attendee calendar link failed: {e.response.text}",
         )
 
     calendar_id = calendar_data["id"]
-    _db.upsert_row(
-        table="user_profiles",
-        data={"id": user_id, "attendee_calendar_id": calendar_id},
-    )
+    _db.save_attendee_calendar_id(user_id, calendar_id)
     logger.info(
         "Linked calendar for user %s via OAuth (calendar_id=%s)",
         user_id,
@@ -224,9 +204,7 @@ async def google_auth_callback(
     )
 
     background_tasks.add_task(_post_link_setup, calendar_id)
-    return RedirectResponse(
-        f"{_FRONTEND_URL}/?calendar_linked=true"
-    )
+    return RedirectResponse(f"{_FRONTEND_URL}/?calendar_linked=true")
 
 
 @attendee_router.get("/auth/zoom/init")
@@ -241,9 +219,7 @@ async def zoom_auth_init(user: dict = Depends(get_current_user)):
     if not _ZOOM_CLIENT_ID or not _ZOOM_REDIRECT_URI:
         raise HTTPException(
             status_code=500,
-            detail=(
-                "ZOOM_CLIENT_ID / ZOOM_REDIRECT_URI not configured"
-            ),
+            detail="ZOOM_CLIENT_ID / ZOOM_REDIRECT_URI not configured",
         )
     state = _sign_state(user["user_id"], "")
     from urllib.parse import urlencode
@@ -288,38 +264,25 @@ async def zoom_auth_callback(code: str, state: str):
         raise HTTPException(
             status_code=502,
             detail=(
-                f"Attendee Zoom connection failed: "
-                f"{e.response.text}"
+                f"Attendee Zoom connection failed: {e.response.text}"
             ),
         )
 
     connection_id = connection["id"]
-    _db.upsert_row(
-        table="user_profiles",
-        data={"id": user_id, "zoom_connection_id": connection_id},
-    )
+    _db.save_zoom_connection_id(user_id, connection_id)
     logger.info(
         "Linked Zoom connection for user %s (connection_id=%s)",
         user_id,
         connection_id,
     )
 
-    return RedirectResponse(
-        f"{_FRONTEND_URL}/?zoom_connected=true"
-    )
+    return RedirectResponse(f"{_FRONTEND_URL}/?zoom_connected=true")
 
 
 @attendee_router.get("/zoom/status")
 async def get_zoom_status(user: dict = Depends(get_current_user)):
     """Return whether the user has a linked Zoom connection."""
-    rows = _db.get_rows(
-        table="user_profiles",
-        filters={"id": user["user_id"]},
-        select="zoom_connection_id",
-    )
-    connection_id = (
-        rows[0]["zoom_connection_id"] if rows else None
-    )
+    connection_id = _db.get_zoom_connection_id(user["user_id"])
     return {
         "connected": connection_id is not None,
         "connection_id": connection_id,
@@ -374,31 +337,24 @@ async def link_calendar(
             user_email=user_email,
         )
         logger.info(
-            "Linked Attendee calendar for user %s "
-            "(calendar_id=%s)",
+            "Linked Attendee calendar for user %s (calendar_id=%s)",
             user_id,
             calendar_data.get("id"),
         )
     except requests.HTTPError as e:
         raise HTTPException(
             status_code=502,
-            detail=(
-                f"Attendee calendar link failed: {e.response.text}"
-            ),
+            detail=f"Attendee calendar link failed: {e.response.text}",
         )
 
     calendar_id = calendar_data.get("id")
-    _db.upsert_row(
-        table="user_profiles",
-        data={"id": user_id, "attendee_calendar_id": calendar_id},
-    )
+    _db.save_attendee_calendar_id(user_id, calendar_id)
 
     # Register webhook for future calendar events.
     # Attendee's API may not support programmatic webhook registration
     # on all plans — if this fails, register manually in the Attendee
-    # dashboard: Settings → Webhooks → add trigger
-    # "calendar.events_update" pointing to
-    # {BASE_URL}/attendee/webhook.
+    # dashboard: Settings → Webhooks → add trigger "calendar.events_update"
+    # pointing to {BASE_URL}/attendee/webhook.
     try:
         register_calendar_webhook(webhook_url)
         logger.info(
@@ -408,17 +364,15 @@ async def link_calendar(
         )
     except requests.HTTPError as e:
         logger.warning(
-            "Auto-registration of calendar.events_update webhook "
-            "failed (%s). Register manually in the Attendee "
-            "dashboard → Settings → Webhooks → URL: %s",
+            "Auto-registration of calendar.events_update webhook failed "
+            "(%s). Register manually in the Attendee dashboard → "
+            "Settings → Webhooks → URL: %s",
             e.response.text,
             webhook_url,
         )
 
     # Schedule bots for meetings that already exist
-    existing = schedule_existing_upcoming_meets(
-        calendar_id, webhook_url
-    )
+    existing = schedule_existing_upcoming_meets(calendar_id, webhook_url)
     logger.info(
         "Scheduled %d bots for existing meetings (calendar %s)",
         len(existing),
@@ -435,14 +389,7 @@ async def link_calendar(
 @attendee_router.get("/status")
 async def get_status(user: dict = Depends(get_current_user)):
     """Return whether the user has a linked Attendee calendar."""
-    rows = _db.get_rows(
-        table="user_profiles",
-        filters={"id": user["user_id"]},
-        select="attendee_calendar_id",
-    )
-    calendar_id = (
-        rows[0]["attendee_calendar_id"] if rows else None
-    )
+    calendar_id = _db.get_attendee_calendar_id(user["user_id"])
     return {
         "linked": calendar_id is not None,
         "calendar_id": calendar_id,
@@ -479,21 +426,13 @@ async def attendee_webhook(
             "(received=%r)", signature
         )
 
-    payload = AttendeeWebhookPayload.model_validate(
-        json.loads(body)
-    )
+    payload = AttendeeWebhookPayload.model_validate(json.loads(body))
     trigger = payload.trigger
     idempotency_key = payload.idempotency_key
 
-    already_processed = _db.get_rows(
-        table="webhook_idempotency_keys",
-        filters={"key": idempotency_key},
-        select="key",
-    )
-    if already_processed:
+    if _db.is_webhook_key_processed(idempotency_key):
         logger.info(
-            "Duplicate webhook delivery %s — skipping",
-            idempotency_key,
+            "Duplicate webhook delivery %s — skipping", idempotency_key
         )
         return {"ok": True}
 
@@ -503,9 +442,7 @@ async def attendee_webhook(
         )
 
     elif trigger == "bot.state_change":
-        event_type = (
-            payload.data.event_type if payload.data else ""
-        )
+        event_type = payload.data.event_type if payload.data else ""
         if event_type == "post_processing_completed":
             bot_id = payload.bot_id
             if bot_id:
@@ -550,10 +487,7 @@ def _schedule_bot_if_needed(
 
     calendar_id = payload.calendar_id
     if not calendar_id:
-        _db.add_row(
-            table="webhook_idempotency_keys",
-            data={"key": idempotency_key},
-        )
+        _db.mark_webhook_key_processed(idempotency_key)
         return
 
     try:
@@ -564,10 +498,7 @@ def _schedule_bot_if_needed(
             calendar_id,
             e.response.text,
         )
-        _db.add_row(
-            table="webhook_idempotency_keys",
-            data={"key": idempotency_key},
-        )
+        _db.mark_webhook_key_processed(idempotency_key)
         return
 
     webhook_url = f"{_BASE_URL}/attendee/webhook"
@@ -581,7 +512,6 @@ def _schedule_bot_if_needed(
                 event.id,
                 webhook_url,
                 calendar_id=calendar_id,
-                event_name=event.name or None,
             )
             logger.info(
                 "Scheduled bot %s for event '%s'",
@@ -598,15 +528,11 @@ def _schedule_bot_if_needed(
 
     if scheduled == 0:
         logger.info(
-            "calendar.events_update for %s — "
-            "no new Google Meets to schedule",
+            "calendar.events_update for %s — no new Google Meets to schedule",
             calendar_id,
         )
 
-    _db.add_row(
-        table="webhook_idempotency_keys",
-        data={"key": idempotency_key},
-    )
+    _db.mark_webhook_key_processed(idempotency_key)
 
 
 def _ingest_and_analyze_recording(
@@ -644,16 +570,10 @@ def _ingest_and_analyze_recording(
             return
 
         # 2. Resolve owning user
-        rows = _db.get_rows(
-            table="user_profiles",
-            filters={"attendee_calendar_id": calendar_id},
-            select="id",
-        ) if calendar_id else []
-        user_id = rows[0]["id"] if rows else None
+        user_id = _db.get_user_id_by_calendar_id(calendar_id) if calendar_id else None
         if not user_id:
             logger.error(
-                "No user found for bot %s (calendar_id=%s) "
-                "— skipping",
+                "No user found for bot %s (calendar_id=%s) — skipping",
                 bot_id,
                 calendar_id,
             )
@@ -661,9 +581,7 @@ def _ingest_and_analyze_recording(
 
         # 3. Download MP4
         mp4_path = os.path.join(upload_dir, f"{bot_id}.mp4")
-        logger.info(
-            "Downloading recording for bot %s", bot_id
-        )
+        logger.info("Downloading recording for bot %s", bot_id)
         with requests.get(recording_url, stream=True) as r:
             r.raise_for_status()
             with open(mp4_path, "wb") as f:
@@ -674,34 +592,20 @@ def _ingest_and_analyze_recording(
         audio_filename = basename(wav_path)
 
         # 5. Create DB record
-        event_name = (
-            bot_data.metadata.event_name if bot_data.metadata
-            else None
+        _db.create_sales_call_from_attendee(
+            call_id=call_id,
+            bot_id=bot_id,
+            user_id=user_id,
+            audio_filename=audio_filename,
         )
-        org_id = _db.ensure_org(user_id)
-        _db.add_row(table="sales_calls", data={
-            "org_id": org_id,
-            "rep_id": user_id,
-            "call_id": call_id,
-            "audio_filename": audio_filename,
-            "status": "pending",
-            "source": "attendee",
-            "attendee_bot_id": bot_id,
-            **({"call_name": event_name} if event_name else {}),
-        })
 
         # 6. Mark idempotency key before analysis so retries triggered
         #    by a slow pipeline don't re-download the recording
-        _db.add_row(
-            table="webhook_idempotency_keys",
-            data={"key": idempotency_key},
-        )
+        _db.mark_webhook_key_processed(idempotency_key)
 
         # 7. Full pipeline — identical to manual upload from here
         logger.info(
-            "Starting analysis for bot %s (call %s)",
-            bot_id,
-            call_id,
+            "Starting analysis for bot %s (call %s)", bot_id, call_id
         )
         _processor.process_call(
             audio_file_path=wav_path,
@@ -733,20 +637,11 @@ def _handle_zoom_connection_invalid(
     """
     Clear a Zoom connection that Attendee has marked expired/revoked.
 
-    The user will be prompted to reconnect on their next dashboard
-    visit.
+    The user will be prompted to reconnect on their next dashboard visit.
     """
-    rows = _db.get_rows(
-        table="user_profiles",
-        filters={"zoom_connection_id": connection_id},
-        select="id",
-    )
-    user_id = rows[0]["id"] if rows else None
+    user_id = _db.get_user_id_by_zoom_connection_id(connection_id)
     if user_id:
-        _db.upsert_row(
-            table="user_profiles",
-            data={"id": user_id, "zoom_connection_id": None},
-        )
+        _db.save_zoom_connection_id(user_id, None)
         logger.warning(
             "Zoom connection %s invalidated — cleared for user %s",
             connection_id,
@@ -758,10 +653,7 @@ def _handle_zoom_connection_invalid(
             "connection %s — ignoring",
             connection_id,
         )
-    _db.add_row(
-        table="webhook_idempotency_keys",
-        data={"key": idempotency_key},
-    )
+    _db.mark_webhook_key_processed(idempotency_key)
 
 
 def _post_link_setup(calendar_id: str) -> None:
@@ -772,20 +664,16 @@ def _post_link_setup(calendar_id: str) -> None:
     webhook_url = f"{_BASE_URL}/attendee/webhook"
     try:
         register_calendar_webhook(webhook_url)
-        logger.info(
-            "Registered calendar webhook: %s", webhook_url
-        )
+        logger.info("Registered calendar webhook: %s", webhook_url)
     except requests.HTTPError as e:
         logger.warning(
-            "Auto-registration of calendar.events_update webhook "
-            "failed (%s). Register manually in the Attendee "
-            "dashboard → Settings → Webhooks → URL: %s",
+            "Auto-registration of calendar.events_update webhook failed "
+            "(%s). Register manually in the Attendee dashboard → "
+            "Settings → Webhooks → URL: %s",
             e.response.text,
             webhook_url,
         )
-    existing = schedule_existing_upcoming_meets(
-        calendar_id, webhook_url
-    )
+    existing = schedule_existing_upcoming_meets(calendar_id, webhook_url)
     logger.info(
         "Scheduled %d bots for existing meetings (calendar %s)",
         len(existing),
@@ -800,9 +688,7 @@ def _sign_state(user_id: str, code_verifier: str) -> str:
     """Sign a state param containing user_id + timestamp + code_verifier."""
     payload = f"{user_id}:{int(time.time())}:{code_verifier}"
     sig = hmac.new(
-        _OAUTH_STATE_SECRET.encode(),
-        payload.encode(),
-        hashlib.sha256,
+        _OAUTH_STATE_SECRET.encode(), payload.encode(), hashlib.sha256
     ).hexdigest()
     return b64encode(f"{payload}:{sig}".encode()).decode()
 
@@ -810,8 +696,7 @@ def _sign_state(user_id: str, code_verifier: str) -> str:
 def _verify_state(state: str) -> tuple[str, str] | None:
     """
     Verify the OAuth state param.
-    Returns (user_id, code_verifier) if valid and not expired,
-    else None.
+    Returns (user_id, code_verifier) if valid and not expired, else None.
     """
     try:
         decoded = b64decode(state).decode()
@@ -819,13 +704,9 @@ def _verify_state(state: str) -> tuple[str, str] | None:
         parts = decoded.split(":")
         sig = parts[-1]
         payload = ":".join(parts[:-1])
-        user_id = parts[0]
-        ts_str = parts[1]
-        code_verifier = ":".join(parts[2:-1])
+        user_id, ts_str, code_verifier = parts[0], parts[1], ":".join(parts[2:-1])
         expected = hmac.new(
-            _OAUTH_STATE_SECRET.encode(),
-            payload.encode(),
-            hashlib.sha256,
+            _OAUTH_STATE_SECRET.encode(), payload.encode(), hashlib.sha256
         ).hexdigest()
         if not hmac.compare_digest(expected, sig):
             return None
@@ -848,8 +729,7 @@ def _verify_signature(body: bytes, signature: str) -> bool:
     """
     if not _WEBHOOK_SECRET:
         logger.warning(
-            "ATTENDEE_WEBHOOK_SECRET not set — skipping "
-            "signature check"
+            "ATTENDEE_WEBHOOK_SECRET not set — skipping signature check"
         )
         return True
 
@@ -860,9 +740,7 @@ def _verify_signature(body: bytes, signature: str) -> bool:
             payload_dict, sort_keys=True
         ).encode()
         expected = b64encode(
-            hmac.new(
-                secret, sorted_body, hashlib.sha256
-            ).digest()
+            hmac.new(secret, sorted_body, hashlib.sha256).digest()
         ).decode()
         return hmac.compare_digest(expected, signature)
     except Exception:

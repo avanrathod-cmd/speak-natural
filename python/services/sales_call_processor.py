@@ -3,10 +3,8 @@ Sales call processor — orchestrates the full pipeline from
 audio upload to stored analysis.
 """
 
-import json
 import logging
 import os
-from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from api.database import SalesDatabaseService
@@ -57,9 +55,10 @@ class SalesCallProcessorService:
         # 3. Transcribe (diarization already enabled)
         transcript = self._audio.transcribe_audio(s3_uri, call_id)
         logger.info("Transcription complete for call %s", call_id)
+        #logger.info("Transcript: %s", transcript)
 
         # 4. Mark transcribed
-        #self._db.update_rows(..., data={"status": "transcribed"}, ...)
+        #self._db.update_sales_call_status(call_id, "transcribed")
 
         # 5. Identify speakers
         speaker_map = self._analyzer.identify_speakers(
@@ -78,23 +77,22 @@ class SalesCallProcessorService:
         logger.info("Analysis complete for call %s", call_id)
 
         # 8. Save to DB
-        self._save_analysis(call_id, speaker_map, analysis, turns)
-
-        # 9. Mark completed
-        self._db.update_rows(
-            table="sales_calls",
-            data={
-                "status": "completed",
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            },
-            filters={"call_id": call_id},
+        self._db.save_call_analysis(
+            call_id=call_id,
+            speaker_map=speaker_map,
+            analysis=analysis,
+            full_transcript=turns["full_transcript"],
         )
 
-        return analysis
+        # 9. Mark completed
+        self._db.update_sales_call_status(call_id, "completed")
 
+        return analysis
+    
     def reprocess_call(
         self,
         call_id: str,
+        #user_id: str,
         rep_hint: Optional[str] = None,
     ) -> Dict:
         """
@@ -102,142 +100,45 @@ class SalesCallProcessorService:
 
         Args:
             call_id: Unique call identifier (e.g. "call_abc123")
+            user_id: UUID of the uploading user
             rep_hint: Optional speaker label override (e.g. "spk_0")
 
         Returns:
             Analysis result dict
         """
         # 1. Load existing transcript from DB
-        rows = self._db.get_rows(
-            table="sales_calls",
-            filters={"call_id": call_id},
-            select=(
-                "call_id, status, error, audio_filename, "
-                "created_at, call_analyses(*)"
-            ),
-        )
-        if not rows:
-            raise ValueError(
-                f"No analysis found for call_id {call_id}"
-            )
-        row = rows[0]
-        # Flatten nested call_analyses into the parent row
-        analyses = row.pop("call_analyses", None) or []
-        if analyses:
-            row.update(analyses[0])
-
+        row = self._db.get_call_analysis(call_id)
+        if not row:
+            raise ValueError(f"No analysis found for call_id {call_id}")
+        
         full_transcript = row.get("full_transcript")
         logger.info(type(full_transcript))
-        # check if full_transcript is empty or a string '[]'
+        #check is full_script is a string of the form '[]'
         if not full_transcript or full_transcript in ("[]"):
-            logger.info(
-                "No transcript found for call_id %s, "
-                "will attempt to re-transcribe from S3 audio.",
-                call_id,
-            )
-            s3_key = (
-                f"sales/{call_id}/audio/{row.get('audio_filename')}"
-            )
-            s3_uri = (
-                f"s3://{self._audio.bucket_name}/{s3_key}"
-            )
-            full_transcript = self._audio.transcribe_audio(
-                s3_uri, call_id
-            )
-            logger.info(
-                "Re-transcription complete for call %s", call_id
-            )
+            print(f"""No transcript found for call_id {call_id},
+                    will attempt to re-transcribe from S3 audio.""")
+            s3_key = f"sales/{call_id}/audio/{row.get('audio_filename')}"
+            s3_uri = f"s3://{self._audio.bucket_name}/{s3_key}"
+            full_transcript = self._audio.transcribe_audio(s3_uri, call_id)
+            print(f"Re-transcription complete for call {call_id}")
 
         # 2. Identify speakers
-        speaker_map = self._analyzer.identify_speakers(
-            full_transcript, rep_hint
-        )
-
+        speaker_map = self._analyzer.identify_speakers(full_transcript, rep_hint)
+        
         # 3. Extract turns
-        turns = self._analyzer.extract_speaker_turns(
-            full_transcript, speaker_map
-        )
-
+        turns = self._analyzer.extract_speaker_turns(full_transcript, speaker_map)
+        
         # 4. Analyze
         analysis = self._analyzer.analyze_call(
             turns["rep_turns"], turns["customer_turns"]
         )
         logger.info("Re-analysis complete for call %s", call_id)
-
         # 5. Update DB
-        self._save_analysis(call_id, speaker_map, analysis, turns)
-        return analysis
-
-    def _save_analysis(
-        self,
-        call_id: str,
-        speaker_map: Dict,
-        analysis: Dict,
-        turns: Dict,
-    ) -> None:
-        """Persist analysis results to call_analyses."""
-        org_rows = self._db.get_rows(
-            table="sales_calls",
-            filters={"call_id": call_id},
-            select="org_id",
+        self._db.save_call_analysis(
+            call_id=call_id,
+            speaker_map=speaker_map,
+            analysis=analysis,
+            full_transcript=turns["full_transcript"],
         )
-        if not org_rows:
-            raise Exception(
-                f"sales_calls row not found for call {call_id}"
-            )
-        org_id = org_rows[0]["org_id"]
-
-        rep_analysis = {
-            "strengths": analysis.get("strengths", []),
-            "improvements": analysis.get("improvements", []),
-            "coaching_tips": analysis.get("coaching_tips", []),
-            "key_moments": analysis.get("key_moments", []),
-        }
-        customer_analysis = {
-            "customer_interests": analysis.get(
-                "customer_interests", []
-            ),
-            "objections_raised": analysis.get(
-                "objections_raised", []
-            ),
-            "buying_signals": analysis.get("buying_signals", []),
-            "suggested_next_steps": analysis.get(
-                "suggested_next_steps", []
-            ),
-        }
-
-        call_name = analysis.get("call_name")
-        if call_name:
-            # Only set if not already populated (e.g. from calendar event)
-            self._db.update_rows(
-                table="sales_calls",
-                data={"call_name": call_name},
-                filters={"call_id": call_id, "call_name": None},
-            )
-
-        self._db.add_row(table="call_analyses", data={
-            "call_id": call_id,
-            "org_id": org_id,
-            "salesperson_speaker_label": speaker_map.get(
-                "salesperson_label"
-            ),
-            "customer_speaker_labels": speaker_map.get(
-                "customer_labels", []
-            ),
-            "overall_rep_score": analysis.get("overall_rep_score"),
-            "communication_score": analysis.get(
-                "communication_score"
-            ),
-            "objection_handling_score": analysis.get(
-                "objection_handling_score"
-            ),
-            "closing_score": analysis.get("closing_score"),
-            "rep_analysis": json.dumps(rep_analysis),
-            "lead_score": analysis.get("lead_score"),
-            "engagement_level": analysis.get("engagement_level"),
-            "customer_sentiment": analysis.get("customer_sentiment"),
-            "customer_analysis": json.dumps(customer_analysis),
-            "full_transcript": json.dumps(
-                turns["full_transcript"]
-            ),
-        })
+        return analysis
+            

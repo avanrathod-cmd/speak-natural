@@ -9,7 +9,7 @@ import {
   useLocation,
   useParams,
 } from 'react-router-dom';
-import { Phone, Plus, ArrowLeft, UserCircle } from 'lucide-react';
+import { Phone, Plus, ArrowLeft, CalendarCheck, Calendar, Video } from 'lucide-react';
 import { CallDashboard } from './components/CallDashboard';
 import { UploadView } from './components/UploadView';
 import { ProcessingView } from './components/ProcessingView';
@@ -18,7 +18,6 @@ import { useAuth } from './contexts/AuthContext';
 import { apiService } from './services/api';
 import { LandingPage } from './pages/LandingPage';
 import { GuestFlowPage } from './pages/GuestFlowPage';
-import { ProfilePage } from './pages/ProfilePage';
 import {
   SalesCallListItem,
   SalesCallAnalysis,
@@ -51,7 +50,7 @@ function flattenAnalysis(r: SalesCallAnalysisResponse): SalesCallAnalysis {
 }
 
 export default function App() {
-  const { getAccessToken, user, loading } = useAuth();
+  const { getAccessToken, user, loading, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -60,13 +59,70 @@ export default function App() {
   const [processingActive, setProcessingActive] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  function handleCallNameUpdate(callId: string, name: string) {
-    setCalls((prev) =>
-      prev.map((c) =>
-        c.call_id === callId ? { ...c, call_name: name } : c,
-      ),
-    );
-  }
+  // Calendar integration state
+  const [calendarLinked, setCalendarLinked] = useState(false);
+  const [calendarLinking, setCalendarLinking] = useState(false);
+
+  // Zoom integration state
+  const [zoomConnected, setZoomConnected] = useState(false);
+  const [zoomConnecting, setZoomConnecting] = useState(false);
+
+  const fetchCalendarStatus = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const resp = await fetch('/attendee/status', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setCalendarLinked(data.linked);
+      }
+    } catch {
+      // non-fatal
+    }
+  }, [getAccessToken]);
+
+  const fetchZoomStatus = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const data = await apiService.getZoomStatus(token);
+      setZoomConnected(data.connected);
+    } catch {
+      // non-fatal
+    }
+  }, [getAccessToken]);
+
+  const handleLinkCalendar = async () => {
+    setCalendarLinking(true);
+    try {
+      const token = await getAccessToken();
+      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const resp = await fetch(`${apiUrl}/attendee/auth/google/init`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error('Failed to start OAuth flow');
+      const { url } = await resp.json();
+      window.location.href = url;
+    } catch (e) {
+      console.error('Calendar link error:', e);
+      setCalendarLinking(false);
+    }
+  };
+
+  const handleLinkZoom = async () => {
+    setZoomConnecting(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Not authenticated');
+      const { url } = await apiService.initZoomOAuth(token);
+      window.location.href = url;
+    } catch (e) {
+      console.error('Zoom link error:', e);
+      setZoomConnecting(false);
+    }
+  };
 
   const loadCalls = useCallback(async () => {
     const token = await getAccessToken();
@@ -85,15 +141,19 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return;
+    fetchCalendarStatus();
+    fetchZoomStatus();
+
     const params = new URLSearchParams(window.location.search);
-    if (
-      params.get('calendar_linked') === 'true' ||
-      params.get('zoom_connected') === 'true'
-    ) {
+    if (params.get('calendar_linked') === 'true') {
+      setCalendarLinked(true);
       window.history.replaceState({}, '', window.location.pathname);
-      navigate('/profile');
     }
-  }, [user, navigate]);
+    if (params.get('zoom_connected') === 'true') {
+      setZoomConnected(true);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [user, fetchCalendarStatus, fetchZoomStatus]);
 
   if (loading) {
     return (
@@ -186,6 +246,12 @@ export default function App() {
           <p className="text-xs text-gray-500 mt-0.5">Sales Call Analyzer</p>
         </div>
         <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={signOut}
+            className="text-xs text-gray-400 hover:text-gray-600"
+          >
+            Sign out
+          </button>
           {showBack && (
             <button
               onClick={goToDashboard}
@@ -196,21 +262,46 @@ export default function App() {
             </button>
           )}
           {onCallsPage && (
-            <button
-              onClick={() => navigate('/upload')}
-              className="flex items-center gap-1.5 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium"
-            >
-              <Plus className="w-4 h-4" />
-              New Analysis
-            </button>
+            <>
+              {calendarLinked ? (
+                <span className="flex items-center gap-1.5 text-xs text-purple-700 bg-purple-50 border border-purple-200 px-3 py-1.5 rounded-lg font-medium">
+                  <CalendarCheck className="w-3.5 h-3.5" />
+                  Calendar connected
+                </span>
+              ) : (
+                <button
+                  onClick={handleLinkCalendar}
+                  disabled={calendarLinking}
+                  className="flex items-center gap-1.5 text-sm bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 font-medium disabled:opacity-50"
+                >
+                  <Calendar className="w-4 h-4" />
+                  {calendarLinking ? 'Redirecting…' : 'Connect Calendar'}
+                </button>
+              )}
+              {zoomConnected ? (
+                <span className="flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg font-medium">
+                  <Video className="w-3.5 h-3.5" />
+                  Zoom connected
+                </span>
+              ) : (
+                <button
+                  onClick={handleLinkZoom}
+                  disabled={zoomConnecting}
+                  className="flex items-center gap-1.5 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
+                >
+                  <Video className="w-4 h-4" />
+                  {zoomConnecting ? 'Redirecting…' : 'Connect Zoom'}
+                </button>
+              )}
+              <button
+                onClick={() => navigate('/upload')}
+                className="flex items-center gap-1.5 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium"
+              >
+                <Plus className="w-4 h-4" />
+                New Analysis
+              </button>
+            </>
           )}
-          <button
-            onClick={() => navigate('/profile')}
-            className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600"
-            title="Profile"
-          >
-            <UserCircle className="w-5 h-5" />
-          </button>
         </div>
       </header>
 
@@ -226,7 +317,6 @@ export default function App() {
               <CallDashboard
                 calls={calls}
                 onOpenCall={(c) => navigate(`/calls/${c.call_id}`)}
-                onCallNameUpdate={handleCallNameUpdate}
               />
             }
           />
@@ -250,11 +340,9 @@ export default function App() {
               <AnalysisRoute
                 calls={calls}
                 getAccessToken={getAccessToken}
-                onCallNameUpdate={handleCallNameUpdate}
               />
             }
           />
-          <Route path="/profile" element={<ProfilePage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>
@@ -265,11 +353,9 @@ export default function App() {
 function AnalysisRoute({
   calls,
   getAccessToken,
-  onCallNameUpdate,
 }: {
   calls: SalesCallListItem[];
   getAccessToken: () => Promise<string | null>;
-  onCallNameUpdate: (callId: string, name: string) => void;
 }) {
   const { callId } = useParams<{ callId: string }>();
   const [analysis, setAnalysis] = useState<SalesCallAnalysis | null>(null);
@@ -301,11 +387,5 @@ function AnalysisRoute({
     );
   }
 
-  return (
-    <AnalysisView
-      analysis={analysis}
-      selectedCall={selectedCall}
-      onCallNameUpdate={onCallNameUpdate}
-    />
-  );
+  return <AnalysisView analysis={analysis} selectedCall={selectedCall} />;
 }
