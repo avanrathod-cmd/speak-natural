@@ -107,6 +107,15 @@ class CallUpdateResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Auth models
+# ---------------------------------------------------------------------------
+
+class AuthInitResponse(BaseModel):
+    org_id: str
+    role: str
+
+
+# ---------------------------------------------------------------------------
 # Billing models
 # ---------------------------------------------------------------------------
 
@@ -134,6 +143,15 @@ class PortalResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Team models
 # ---------------------------------------------------------------------------
+
+class OrgUpdateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+
+
+class OrgResponse(BaseModel):
+    org_id: str
+    name: str
+
 
 class InviteRequest(BaseModel):
     email: str

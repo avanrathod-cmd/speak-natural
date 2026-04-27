@@ -9,14 +9,17 @@ Routes (mounted at /billing in main.py):
 Roles with billing access: owner, manager.
 """
 
+import json
 import logging
 import os
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from standardwebhooks import WebhookVerificationError
 
 from api.auth import get_current_user
+from dodopayments.types.subscription import Subscription
 from api.database import SalesDatabaseService
 from api.models import (
     BillingStatusResponse,
@@ -48,18 +51,21 @@ async def create_checkout(
     user_id = user["user_id"]
     _require_billing_access(user_id)
 
+    profile = _get_profile(user_id)
+    org_id = profile.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=400, detail="No organization found")
+
     try:
         plan_id = billing_client.get_dodo_plan_id(req.plan)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    email = _db.get_user_email(user_id) or user.get("email", "")
     try:
         checkout_url = billing_client.create_checkout_session(
             plan_id=plan_id,
-            customer_email=email,
-            customer_name=email.split("@")[0],
             return_url=f"{_FRONTEND_URL}/billing?upgraded=true",
+            org_id=org_id,
         )
     except Exception as exc:
         logger.error("Checkout creation failed: %s", exc)
@@ -75,20 +81,21 @@ async def billing_webhook(request: Request):
     payload = await request.body()
 
     try:
-        event = billing_client.parse_webhook_event(
+        billing_client.parse_webhook_event(
             payload=payload,
             webhook_id=request.headers.get("webhook-id", ""),
             webhook_timestamp=request.headers.get("webhook-timestamp", ""),
             webhook_signature=request.headers.get("webhook-signature", ""),
         )
-    except ValueError:
+    except WebhookVerificationError:
         raise HTTPException(
             status_code=401, detail="Invalid webhook signature"
         )
 
+    body = json.loads(payload)
     _handle_subscription_event(
-        event_type=_extract(event, "type"),
-        data=_extract(event, "data") or {},
+        event_type=body.get("type"),
+        data=body.get("data"),
     )
     return {"received": True}
 
@@ -193,67 +200,54 @@ def _count_seats(org_id: str) -> int:
     return len(rows)
 
 
-def _extract(data, field: str):
-    """Read a field from a Pydantic model or a plain dict."""
-    if hasattr(data, field):
-        return getattr(data, field)
-    if isinstance(data, dict):
-        return data.get(field)
-    return None
-
-
 def _handle_subscription_event(
-    event_type: Optional[str], data
+    event_type: Optional[str], data: Optional[dict]
 ) -> None:
     if not event_type or not event_type.startswith("subscription."):
         return
-
-    customer_id = _extract(data, "customer_id")
-    subscription_id = _extract(data, "subscription_id")
-
-    if not customer_id and not subscription_id:
-        logger.warning(
-            "Webhook %s missing customer/subscription IDs", event_type
-        )
+    if not data:
         return
 
+    sub = Subscription.model_validate(data)
+    subscription_id = sub.subscription_id
+    customer_id = sub.customer.customer_id
     now = datetime.now(timezone.utc).isoformat()
 
     if event_type == "subscription.active":
-        plan = _extract(data, "plan") or "free"
-        _upsert_subscription(
-            subscription_id=subscription_id,
-            customer_id=customer_id,
+        org_id = sub.metadata.get("org_id")
+        if not org_id:
+            logger.error(
+                "subscription.active missing org_id in metadata "
+                "(sub=%s) — cannot link to org", subscription_id,
+            )
+            return
+        plan = billing_client.get_plan_name(sub.product_id)
+        _update_subscription(
+            filters={"org_id": org_id},
             update={
                 "dodo_customer_id": customer_id,
                 "dodo_subscription_id": subscription_id,
                 "plan": plan,
                 "seat_limit": billing_client.get_seat_limit(plan),
                 "status": "active",
-                "current_period_end": _extract(
-                    data, "current_period_end"
-                ),
+                "current_period_end": sub.next_billing_date.isoformat(),
                 "updated_at": now,
             },
         )
 
     elif event_type == "subscription.renewed":
-        _upsert_subscription(
-            subscription_id=subscription_id,
-            customer_id=customer_id,
+        _update_subscription(
+            filters={"dodo_subscription_id": subscription_id},
             update={
-                "current_period_end": _extract(
-                    data, "current_period_end"
-                ),
+                "current_period_end": sub.next_billing_date.isoformat(),
                 "updated_at": now,
             },
         )
 
     elif event_type == "subscription.plan_changed":
-        plan = _extract(data, "plan") or "free"
-        _upsert_subscription(
-            subscription_id=subscription_id,
-            customer_id=customer_id,
+        plan = billing_client.get_plan_name(sub.product_id)
+        _update_subscription(
+            filters={"dodo_subscription_id": subscription_id},
             update={
                 "plan": plan,
                 "seat_limit": billing_client.get_seat_limit(plan),
@@ -266,9 +260,8 @@ def _handle_subscription_event(
         "subscription.failed",
         "subscription.expired",
     ):
-        _upsert_subscription(
-            subscription_id=subscription_id,
-            customer_id=customer_id,
+        _update_subscription(
+            filters={"dodo_subscription_id": subscription_id},
             update={
                 "plan": "free",
                 "seat_limit": 1,
@@ -278,37 +271,10 @@ def _handle_subscription_event(
         )
 
 
-def _upsert_subscription(
-    *,
-    subscription_id: Optional[str],
-    customer_id: Optional[str],
-    update: dict,
-) -> None:
-    filters = None
-
-    if subscription_id:
-        rows = _db.get_rows(
-            table="subscriptions",
-            filters={"dodo_subscription_id": subscription_id},
+def _update_subscription(*, filters: dict, update: dict) -> None:
+    if not _db.get_rows(table="subscriptions", filters=filters):
+        logger.error(
+            "No subscription row found for %s", filters
         )
-        if rows:
-            filters = {"dodo_subscription_id": subscription_id}
-
-    if not filters and customer_id:
-        rows = _db.get_rows(
-            table="subscriptions",
-            filters={"dodo_customer_id": customer_id},
-        )
-        if rows:
-            filters = {"dodo_customer_id": customer_id}
-
-    if filters:
-        _db.update_rows(
-            table="subscriptions", data=update, filters=filters
-        )
-    else:
-        logger.warning(
-            "No subscription row found for sub=%s customer=%s",
-            subscription_id,
-            customer_id,
-        )
+        return
+    _db.update_rows(table="subscriptions", data=update, filters=filters)

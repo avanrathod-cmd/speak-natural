@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { AuthContextType, User } from '../types';
+import { apiService } from '../services/api';
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || '';
@@ -24,7 +25,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     // Check active sessions
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) {
+        try {
+          await apiService.authInit(session.access_token);
+        } catch (e) {
+          console.error('Auth init error:', e);
+        }
+      }
       setUser(session?.user as User || null);
       setLoading(false);
     });
@@ -32,7 +40,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (_event === 'SIGNED_IN' && session) {
+        try {
+          await apiService.authInit(session.access_token);
+        } catch (e) {
+          console.error('Auth init error:', e);
+        }
+      }
       setUser(session?.user as User || null);
     });
 

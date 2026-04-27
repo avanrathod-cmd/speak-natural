@@ -38,22 +38,26 @@ def get_dodo_plan_id(plan: str) -> str:
     return pid
 
 
+def get_plan_name(product_id: str) -> str:
+    """Reverse-lookup Dodo product ID → plan name (solo/team/unlimited)."""
+    for name, pid in _DODO_PLAN_IDS.items():
+        if pid and pid == product_id:
+            return name
+    return "solo"
+
+
 def get_seat_limit(plan: str) -> int:
     return _PLAN_SEAT_LIMITS.get(plan, 1)
 
 
 def create_checkout_session(
-    *,
-    plan_id: str,
-    customer_email: str,
-    customer_name: str,
-    return_url: str,
+    *, plan_id: str, return_url: str, org_id: str
 ) -> str:
     """Return Dodo hosted checkout URL for the given plan."""
     session = _client().checkout_sessions.create(
         product_cart=[{"product_id": plan_id, "quantity": 1}],
-        customer={"email": customer_email, "name": customer_name},
         return_url=return_url,
+        metadata={"org_id": org_id},
     )
     return session.checkout_url
 
@@ -68,7 +72,7 @@ def create_portal_session(
         customer_id,
         return_url=return_url,
     )
-    return session.url
+    return session.link
 
 
 def parse_webhook_event(
@@ -80,16 +84,14 @@ def parse_webhook_event(
 ):
     """Verify Dodo webhook signature and return the event object.
 
-    Raises ValueError on invalid signature.
+    Raises WebhookVerificationError on invalid signature.
+    All other exceptions propagate as-is.
     """
-    try:
-        return _client().webhooks.unwrap(
-            payload,
-            headers={
-                "webhook-id": webhook_id,
-                "webhook-signature": webhook_signature,
-                "webhook-timestamp": webhook_timestamp,
-            },
-        )
-    except Exception as exc:
-        raise ValueError(f"Webhook verification failed: {exc}") from exc
+    return _client().webhooks.unwrap(
+        payload.decode("utf-8"),
+        headers={
+            "webhook-id": webhook_id,
+            "webhook-signature": webhook_signature,
+            "webhook-timestamp": webhook_timestamp,
+        },
+    )

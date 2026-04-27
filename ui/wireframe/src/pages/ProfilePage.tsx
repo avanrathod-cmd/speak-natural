@@ -14,22 +14,35 @@ export function ProfilePage() {
   const [calendarLinking, setCalendarLinking] = useState(false);
   const [zoomConnected, setZoomConnected] = useState(false);
   const [zoomConnecting, setZoomConnecting] = useState(false);
+  const [orgName, setOrgName] = useState('');
+  const [orgNameInput, setOrgNameInput] = useState('');
+  const [orgSaving, setOrgSaving] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   const fetchStatus = useCallback(async () => {
     const token = await getAccessToken();
     if (!token) return;
     try {
-      const [calResp, zoomData] = await Promise.all([
+      const [calResp, zoomData, orgData, billingData] = await Promise.all([
         fetch('/attendee/status', {
           headers: { Authorization: `Bearer ${token}` },
         }),
         apiService.getZoomStatus(token),
+        apiService.getOrg(token).catch(() => null),
+        apiService.getBillingStatus(token).catch(() => null),
       ]);
       if (calResp.ok) {
         const data = await calResp.json();
         setCalendarLinked(data.linked);
       }
       setZoomConnected(zoomData.connected);
+      if (orgData) {
+        setOrgName(orgData.name);
+        setOrgNameInput(orgData.name);
+      }
+      if (billingData) {
+        setUserRole(billingData.role);
+      }
     } catch {
       // non-fatal
     }
@@ -47,6 +60,21 @@ export function ProfilePage() {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, [fetchStatus]);
+
+  const handleSaveOrgName = async () => {
+    setOrgSaving(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) return;
+      const result = await apiService.updateOrgName(orgNameInput, token);
+      setOrgName(result.name);
+      setOrgNameInput(result.name);
+    } catch (e) {
+      console.error('Failed to update org name:', e);
+    } finally {
+      setOrgSaving(false);
+    }
+  };
 
   const handleLinkCalendar = async () => {
     setCalendarLinking(true);
@@ -103,6 +131,35 @@ export function ProfilePage() {
           </p>
           <p className="text-sm text-gray-900">{user?.email}</p>
         </div>
+
+        {(userRole === 'owner' || userRole === 'manager') && (
+          <div className="px-6 py-5 border-b border-gray-100">
+            <p className="text-xs font-medium text-gray-400 uppercase
+              tracking-wide mb-2"
+            >
+              Organization
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={orgNameInput}
+                onChange={(e) => setOrgNameInput(e.target.value)}
+                className="flex-1 text-sm border border-gray-200 rounded-lg
+                  px-3 py-2 focus:outline-none focus:ring-2
+                  focus:ring-purple-300"
+              />
+              <button
+                onClick={handleSaveOrgName}
+                disabled={orgSaving || orgNameInput === orgName}
+                className="text-sm bg-purple-600 text-white px-4 py-2
+                  rounded-lg hover:bg-purple-700 font-medium
+                  disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {orgSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="px-6 py-5 border-b border-gray-100">
           <p className="text-xs font-medium text-gray-400 uppercase

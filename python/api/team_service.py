@@ -25,6 +25,8 @@ from api.models import (
     InviteInfoResponse,
     InviteRequest,
     InviteResponse,
+    OrgResponse,
+    OrgUpdateRequest,
     RepSummary,
     TeamMember,
 )
@@ -46,6 +48,38 @@ _SEAT_ROLES = {"manager", "rep"}
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@team_router.get("/org", response_model=OrgResponse)
+async def get_org(user: dict = Depends(get_current_user)):
+    profile = _require_team_admin(user["user_id"])
+    org_id = profile.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=400, detail="No organization found")
+    rows = _db.get_rows(
+        table="organizations",
+        filters={"id": org_id},
+        select="name",
+    )
+    name = rows[0]["name"] if rows else "My Organization"
+    return OrgResponse(org_id=org_id, name=name)
+
+
+@team_router.patch("/org", response_model=OrgResponse)
+async def update_org(
+    req: OrgUpdateRequest,
+    user: dict = Depends(get_current_user),
+):
+    profile = _require_team_admin(user["user_id"])
+    org_id = profile.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=400, detail="No organization found")
+    _db.update_rows(
+        table="organizations",
+        data={"name": req.name},
+        filters={"id": org_id},
+    )
+    return OrgResponse(org_id=org_id, name=req.name)
+
 
 @team_router.get("/reps", response_model=list[RepSummary])
 async def list_reps(user: dict = Depends(get_current_user)):

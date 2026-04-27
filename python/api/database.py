@@ -139,10 +139,15 @@ class SalesDatabaseService(DatabaseService):
             raise Exception("Failed to create organization")
 
         org_id = org_result.data[0]["id"]
+        # Defaults to manager so new users can upload calls and access billing.
+        # owner vs manager distinction to be revisited — see issue #5.
         self.client.table("user_profiles").upsert({
             "id": user_id,
             "org_id": org_id,
-            "role": "owner",
+            "role": "manager",
+        }).execute()
+        self.client.table("subscriptions").insert({
+            "org_id": org_id,
         }).execute()
         return org_id
 

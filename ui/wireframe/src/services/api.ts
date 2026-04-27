@@ -240,6 +240,40 @@ class ApiService {
     if (!response.ok) throw new Error('Failed to accept invite');
   }
 
+  // ── Auth ────────────────────────────────────────────────────────────────
+
+  async authInit(
+    token: string,
+  ): Promise<{ org_id: string; role: string }> {
+    const response = await fetch(`${API_URL}/auth/init`, {
+      method: 'POST',
+      headers: await this.getHeaders(token),
+    });
+    if (!response.ok) throw new Error('Auth init failed');
+    return response.json();
+  }
+
+  async getOrg(token: string): Promise<{ org_id: string; name: string }> {
+    const response = await fetch(`${API_URL}/team/org`, {
+      headers: await this.getHeaders(token),
+    });
+    if (!response.ok) throw new Error('Failed to fetch org');
+    return response.json();
+  }
+
+  async updateOrgName(
+    name: string,
+    token: string,
+  ): Promise<{ org_id: string; name: string }> {
+    const response = await fetch(`${API_URL}/team/org`, {
+      method: 'PATCH',
+      headers: await this.getHeaders(token),
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) throw new Error('Failed to update org name');
+    return response.json();
+  }
+
   // ── Guest Analysis ───────────────────────────────────────────────────────
 
   async uploadGuestCall(
