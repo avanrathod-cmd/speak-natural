@@ -1,5 +1,5 @@
 """
-FastAPI entry point for the SpeakRight Sales Analyzer API.
+FastAPI entry point for the yoursalescoach.ai API.
 """
 
 import os
@@ -28,7 +28,7 @@ from api.models import AuthInitResponse
 _db = SalesDatabaseService()
 
 app = FastAPI(
-    title="SpeakRight Sales Analyzer API",
+    title="yoursalescoach.ai API",
     description="AI-powered sales call analysis service",
     version="2.0.0",
 )
@@ -82,7 +82,7 @@ async def auth_init(user: dict = Depends(get_current_user)):
 
 @app.get("/", tags=["Health"])
 async def root():
-    return {"status": "ok", "service": "SpeakRight Sales Analyzer API"}
+    return {"status": "ok", "service": "yoursalescoach.ai API"}
 
 
 @app.get("/health", tags=["Health"])

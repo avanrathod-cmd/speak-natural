@@ -213,7 +213,7 @@ export default function App() {
         </div>
         <div>
           <h1 className="text-lg font-semibold text-gray-900 leading-none">
-            SpeakRight
+            yoursalescoach.ai
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">Sales Call Analyzer</p>
         </div>

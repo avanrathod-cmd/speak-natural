@@ -17,7 +17,7 @@ export function LandingPage() {
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
             <Phone className="w-4 h-4 text-white" />
           </div>
-          <span className="font-semibold text-gray-900">SpeakNatural AI</span>
+          <span className="font-semibold text-gray-900">yoursalescoach.ai</span>
         </div>
         <div className="ml-auto flex items-center gap-4">
           <button

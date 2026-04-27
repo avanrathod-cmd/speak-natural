@@ -290,7 +290,7 @@ export function AnalysisView({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `speaknatural-${selectedCall.call_id}.txt`;
+      a.download = `yoursalescoach-${selectedCall.call_id}.txt`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {

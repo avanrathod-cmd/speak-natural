@@ -437,7 +437,7 @@ async def export_call(
         media_type="text/plain; charset=utf-8",
         headers={
             "Content-Disposition": (
-                f'attachment; filename="speaknatural-{call_id}.txt"'
+                f'attachment; filename="yoursalescoach-{call_id}.txt"'
             )
         },
     )
