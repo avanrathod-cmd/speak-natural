@@ -41,6 +41,40 @@ export interface SalesCallListItem {
   lead_score?: number;
   engagement_level?: 'high' | 'medium' | 'low';
   customer_sentiment?: 'positive' | 'neutral' | 'negative';
+  rep_id?: string;
+}
+
+// Billing + Team types
+
+export type UserRole = 'owner' | 'manager' | 'rep';
+
+export interface BillingStatus {
+  plan: string;
+  status: string;
+  role: UserRole;
+  seat_limit: number;
+  seats_used: number;
+  period_end: string | null;
+}
+
+export interface TeamMember {
+  user_id: string;
+  email: string | null;
+  role: UserRole;
+  full_name: string | null;
+  created_at: string | null;
+}
+
+export interface RepSummary {
+  user_id: string;
+  email: string | null;
+  full_name: string | null;
+}
+
+export interface InviteInfo {
+  org_name: string;
+  invited_email: string;
+  role: UserRole;
 }
 
 export interface KeyMoment {

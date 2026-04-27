@@ -474,10 +474,7 @@ async def attendee_webhook(
     signature = request.headers.get("X-Webhook-Signature", "")
 
     if not _verify_signature(body, signature):
-        logger.warning(
-            "Webhook signature mismatch — allowing in dev "
-            "(received=%r)", signature
-        )
+        logger.error("Webhook signature mismatch (received=%r)", signature)
 
     payload = AttendeeWebhookPayload.model_validate(
         json.loads(body)
@@ -853,17 +850,17 @@ def _verify_signature(body: bytes, signature: str) -> bool:
         )
         return True
 
-    try:
-        secret = b64decode(_WEBHOOK_SECRET)
-        payload_dict = json.loads(body)
-        sorted_body = json.dumps(
-            payload_dict, sort_keys=True
-        ).encode()
-        expected = b64encode(
-            hmac.new(
-                secret, sorted_body, hashlib.sha256
-            ).digest()
-        ).decode()
-        return hmac.compare_digest(expected, signature)
-    except Exception:
-        return False
+    secret = b64decode(_WEBHOOK_SECRET)
+    payload_dict = json.loads(body)
+    sorted_body = json.dumps(payload_dict, sort_keys=True).encode()
+    expected = b64encode(
+        hmac.new(secret, sorted_body, hashlib.sha256).digest()
+    ).decode()
+    match = hmac.compare_digest(expected, signature)
+    if not match:
+        logger.error(
+            "Webhook signature mismatch — "
+            "expected=%r received=%r body_len=%d",
+            expected, signature, len(body),
+        )
+    return match

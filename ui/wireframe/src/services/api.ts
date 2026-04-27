@@ -1,8 +1,12 @@
 import {
-  SalesCallUploadResponse,
-  SalesCallStatus,
+  BillingStatus,
+  InviteInfo,
+  RepSummary,
   SalesCallAnalysisResponse,
   SalesCallListItem,
+  SalesCallStatus,
+  SalesCallUploadResponse,
+  TeamMember,
 } from '../types';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -65,8 +69,13 @@ class ApiService {
     return response.json();
   }
 
-  async listSalesCalls(token: string): Promise<SalesCallListItem[]> {
-    const response = await fetch(`${API_URL}/sales/calls`, {
+  async listSalesCalls(
+    token: string,
+    repId?: string,
+  ): Promise<SalesCallListItem[]> {
+    const url = new URL(`${API_URL}/sales/calls`);
+    if (repId) url.searchParams.set('rep_id', repId);
+    const response = await fetch(url.toString(), {
       headers: await this.getHeaders(token),
     });
     if (!response.ok) {
@@ -136,6 +145,132 @@ class ApiService {
     if (!response.ok) {
       throw new Error(`Zoom OAuth init failed: ${response.statusText}`);
     }
+    return response.json();
+  }
+
+  // ── Billing ─────────────────────────────────────────────────────────────
+
+  async getBillingStatus(token: string): Promise<BillingStatus> {
+    const response = await fetch(`${API_URL}/billing/status`, {
+      headers: await this.getHeaders(token),
+    });
+    if (!response.ok) throw new Error('Failed to fetch billing status');
+    return response.json();
+  }
+
+  async createCheckout(
+    plan: string,
+    token: string,
+  ): Promise<{ checkout_url: string }> {
+    const response = await fetch(`${API_URL}/billing/checkout`, {
+      method: 'POST',
+      headers: await this.getHeaders(token),
+      body: JSON.stringify({ plan }),
+    });
+    if (!response.ok) throw new Error('Failed to create checkout');
+    return response.json();
+  }
+
+  async getBillingPortal(
+    token: string,
+  ): Promise<{ portal_url: string }> {
+    const response = await fetch(`${API_URL}/billing/portal`, {
+      headers: await this.getHeaders(token),
+    });
+    if (!response.ok) throw new Error('Failed to get billing portal');
+    return response.json();
+  }
+
+  // ── Team ─────────────────────────────────────────────────────────────────
+
+  async getTeamMembers(token: string): Promise<TeamMember[]> {
+    const response = await fetch(`${API_URL}/team/members`, {
+      headers: await this.getHeaders(token),
+    });
+    if (!response.ok) throw new Error('Failed to fetch team members');
+    return response.json();
+  }
+
+  async getReps(token: string): Promise<RepSummary[]> {
+    const response = await fetch(`${API_URL}/team/reps`, {
+      headers: await this.getHeaders(token),
+    });
+    if (!response.ok) throw new Error('Failed to fetch reps');
+    return response.json();
+  }
+
+  async inviteMember(
+    email: string,
+    role: string,
+    token: string,
+  ): Promise<{ invite_url: string }> {
+    const response = await fetch(`${API_URL}/team/invite`, {
+      method: 'POST',
+      headers: await this.getHeaders(token),
+      body: JSON.stringify({ email, role }),
+    });
+    if (!response.ok) throw new Error('Failed to create invite');
+    return response.json();
+  }
+
+  async removeMember(userId: string, token: string): Promise<void> {
+    const response = await fetch(
+      `${API_URL}/team/members/${userId}`,
+      { method: 'DELETE', headers: await this.getHeaders(token) },
+    );
+    if (!response.ok) throw new Error('Failed to remove member');
+  }
+
+  async getInviteInfo(inviteToken: string): Promise<InviteInfo> {
+    const response = await fetch(
+      `${API_URL}/team/invite/${inviteToken}`,
+    );
+    if (!response.ok) throw new Error('Invite not found or expired');
+    return response.json();
+  }
+
+  async acceptInvite(
+    inviteToken: string,
+    token: string,
+  ): Promise<void> {
+    const response = await fetch(
+      `${API_URL}/team/accept/${inviteToken}`,
+      { method: 'POST', headers: await this.getHeaders(token) },
+    );
+    if (!response.ok) throw new Error('Failed to accept invite');
+  }
+
+  // ── Auth ────────────────────────────────────────────────────────────────
+
+  async authInit(
+    token: string,
+  ): Promise<{ org_id: string; role: string }> {
+    const response = await fetch(`${API_URL}/auth/init`, {
+      method: 'POST',
+      headers: await this.getHeaders(token),
+    });
+    if (!response.ok) throw new Error('Auth init failed');
+    return response.json();
+  }
+
+  async getOrg(token: string): Promise<{ org_id: string; name: string }> {
+    const response = await fetch(`${API_URL}/team/org`, {
+      headers: await this.getHeaders(token),
+    });
+    if (!response.ok) throw new Error('Failed to fetch org');
+    return response.json();
+  }
+
+  async updateOrgName(
+    name: string,
+    token: string,
+  ): Promise<{ org_id: string; name: string }> {
+    const response = await fetch(`${API_URL}/team/org`, {
+      method: 'PATCH',
+      headers: await this.getHeaders(token),
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) throw new Error('Failed to update org name');
     return response.json();
   }
 

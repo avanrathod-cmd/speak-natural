@@ -448,13 +448,31 @@ async def export_call(
 )
 async def list_calls(
     user: dict = Depends(get_current_user),
+    rep_id: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """List sales calls for the current user, newest first."""
+    """List sales calls newest first, scoped to the caller's org.
+
+    rep_id is an optional filter supplied by the frontend — the
+    dashboard passes the current user's ID for reps and omits it
+    (or passes a specific rep's ID) for owners/managers.
+    """
+    profile_rows = _db.get_rows(
+        table="user_profiles",
+        filters={"id": user["user_id"]},
+        select="org_id",
+    )
+    if not profile_rows or not profile_rows[0].get("org_id"):
+        return []
+
+    filters: dict = {"org_id": profile_rows[0]["org_id"]}
+    if rep_id:
+        filters["rep_id"] = rep_id
+
     rows = _db.get_rows(
         table="sales_calls",
-        filters={"rep_id": user["user_id"]},
+        filters=filters,
         select=(
             "*, call_analyses(overall_rep_score, lead_score,"
             " engagement_level, customer_sentiment)"
@@ -479,6 +497,7 @@ async def list_calls(
             lead_score=row.get("lead_score"),
             engagement_level=row.get("engagement_level"),
             customer_sentiment=row.get("customer_sentiment"),
+            rep_id=row.get("rep_id"),
         ))
     return result
 

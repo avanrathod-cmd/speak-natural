@@ -1,101 +1,62 @@
 #!/bin/bash
 
-set -e  # Exit on error
+# SpeakRight — environment variable checklist for Railway
+#
+# Railway uses environment variables set directly in the dashboard,
+# not a secret manager. This script just prints which variables
+# need to be configured.
+#
+# Dashboard: https://railway.app → your project → service → Variables
 
-# Colors for output
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+VARS=(
+    "AWS_ACCESS_KEY_ID"
+    "AWS_SECRET_ACCESS_KEY"
+    "AWS_DEFAULT_REGION"
+    "S3_BUCKET_NAME"
+    "SUPABASE_URL"
+    "SUPABASE_ANON_KEY"
+    "SUPABASE_JWT_SECRET"
+    "SUPABASE_SERVICE_ROLE_KEY"
+    "GEMINI_API_KEY"
+    "LLM_PROVIDER"
+    "LLM_MODEL"
+    "ATTENDEE_API_KEY"
+    "ATTENDEE_WEBHOOK_SECRET"
+    "GOOGLE_CLIENT_ID"
+    "GOOGLE_CLIENT_SECRET"
+    "GOOGLE_REDIRECT_URI"
+    "BASE_URL"
+    "FRONTEND_URL"
+    "OAUTH_STATE_SECRET"
+    "ALLOWED_ORIGINS"
+)
 
-echo -e "${BLUE}=== Google Cloud Secret Manager Setup ===${NC}\n"
-
-# Check if .env file exists
 ENV_FILE="python/.env"
-if [ ! -f "$ENV_FILE" ]; then
-    echo -e "${RED}Error: $ENV_FILE not found${NC}"
-    echo "Please create the .env file with your API keys first."
-    exit 1
-fi
+MISSING=()
+SET=()
 
-# Load environment variables from .env
-echo -e "${BLUE}Loading credentials from $ENV_FILE...${NC}"
-source "$ENV_FILE"
-
-# Check if gcloud is installed
-if ! command -v gcloud &> /dev/null; then
-    echo -e "${RED}Error: gcloud CLI not found${NC}"
-    echo "Install it with: brew install --cask google-cloud-sdk"
-    exit 1
-fi
-
-# Verify gcloud authentication
-echo -e "${BLUE}Verifying authentication...${NC}"
-if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" &> /dev/null; then
-    echo -e "${RED}Not authenticated. Running gcloud auth login...${NC}"
-    gcloud auth login
-fi
-
-echo -e "\n${BLUE}Creating secrets in Google Cloud Secret Manager...${NC}\n"
-
-# Function to create or update a secret
-create_secret() {
-    local secret_name=$1
-    local secret_value=$2
-
-    if [ -z "$secret_value" ]; then
-        echo -e "${YELLOW}⚠ Skipping $secret_name (value is empty)${NC}"
-        return
-    fi
-
-    # Check if secret already exists
-    if gcloud secrets describe "$secret_name" &> /dev/null; then
-        echo -e "${YELLOW}Secret '$secret_name' already exists. Updating...${NC}"
-        echo -n "$secret_value" | gcloud secrets versions add "$secret_name" --data-file=-
-        echo -e "${GREEN}✓ Updated $secret_name${NC}"
+for var in "${VARS[@]}"; do
+    val=$(grep -E "^${var}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+    if [ -z "$val" ]; then
+        MISSING+=("$var")
     else
-        echo -e "${BLUE}Creating $secret_name...${NC}"
-        echo -n "$secret_value" | gcloud secrets create "$secret_name" --data-file=-
-        echo -e "${GREEN}✓ Created $secret_name${NC}"
+        SET+=("$var")
     fi
-}
+done
 
-# Create all secrets
-echo -e "${BLUE}[1/9] AWS Access Key${NC}"
-create_secret "aws-access-key" "$AWS_ACCESS_KEY_ID"
+echo "=== Environment Variable Status ==="
+echo ""
+for var in "${SET[@]}"; do
+    echo "  ✓ $var"
+done
+for var in "${MISSING[@]}"; do
+    echo "  ✗ $var  ← not set"
+done
 
-echo -e "\n${BLUE}[2/9] AWS Secret Key${NC}"
-create_secret "aws-secret-key" "$AWS_SECRET_ACCESS_KEY"
-
-echo -e "\n${BLUE}[3/9] Anthropic API Key${NC}"
-create_secret "anthropic-api-key" "$ANTHROPIC_API_KEY"
-
-echo -e "\n${BLUE}[4/9] OpenAI API Key${NC}"
-create_secret "openai-api-key" "$OPENAI_API_KEY"
-
-echo -e "\n${BLUE}[5/9] ElevenLabs API Key${NC}"
-create_secret "elevenlabs-api-key" "$ELEVENLABS_API_KEY"
-
-echo -e "\n${BLUE}[6/9] ElevenLabs Voice ID${NC}"
-create_secret "elevenlabs-voice-id" "$ELEVENLABS_VOICE_ID"
-
-echo -e "\n${BLUE}[7/9] Supabase URL${NC}"
-create_secret "supabase-url" "$SUPABASE_URL"
-
-echo -e "\n${BLUE}[8/9] Supabase Anon Key${NC}"
-create_secret "supabase-anon-key" "$SUPABASE_ANON_KEY"
-
-echo -e "\n${BLUE}[9/9] Supabase JWT Secret${NC}"
-create_secret "supabase-jwt-secret" "$SUPABASE_JWT_SECRET"
-
-# Summary
-echo -e "\n${BLUE}========================================${NC}"
-echo -e "${GREEN}✓ All secrets created successfully!${NC}"
-echo -e "${BLUE}========================================${NC}\n"
-
-echo -e "${GREEN}Next steps:${NC}"
-echo -e "1. Review secrets: ${BLUE}gcloud secrets list${NC}"
-echo -e "2. Deploy application: ${BLUE}./deploy.sh${NC}"
-echo -e "\n${YELLOW}Note: Secrets are managed in Google Cloud Secret Manager${NC}"
-echo -e "View them at: https://console.cloud.google.com/security/secret-manager"
+echo ""
+if [ ${#MISSING[@]} -eq 0 ]; then
+    echo "All variables set. Copy them to the Railway dashboard."
+else
+    echo "${#MISSING[@]} variable(s) missing. Set them in python/.env"
+    echo "then add them to Railway dashboard → Variables."
+fi
