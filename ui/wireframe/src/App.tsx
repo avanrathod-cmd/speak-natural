@@ -18,6 +18,7 @@ import { useAuth } from './contexts/AuthContext';
 import { apiService } from './services/api';
 import { LandingPage } from './pages/LandingPage';
 import { PrivacyPage } from './pages/PrivacyPage';
+import { CookiePage } from './pages/CookiePage';
 import { GuestFlowPage } from './pages/GuestFlowPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { PricingPage } from './pages/PricingPage';
@@ -140,6 +141,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/cookies" element={<CookiePage />} />
         <Route path="/try/*" element={<GuestFlowPage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/join/:token" element={<JoinPage />} />
