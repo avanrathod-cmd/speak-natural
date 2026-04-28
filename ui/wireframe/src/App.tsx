@@ -19,6 +19,7 @@ import { apiService } from './services/api';
 import { LandingPage } from './pages/LandingPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { CookiePage } from './pages/CookiePage';
+import { TermsPage } from './pages/TermsPage';
 import { GuestFlowPage } from './pages/GuestFlowPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { PricingPage } from './pages/PricingPage';
@@ -142,6 +143,7 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/cookies" element={<CookiePage />} />
+        <Route path="/terms" element={<TermsPage />} />
         <Route path="/try/*" element={<GuestFlowPage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/join/:token" element={<JoinPage />} />
