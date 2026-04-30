@@ -14,7 +14,12 @@ const PLANS = [
     price: '$0',
     period: '/month',
     seats: '1 seat',
-    features: ['1 manager seat', 'Manual call uploads', 'Full AI analysis'],
+    features: [
+      '1 manager seat',
+      'Manual call uploads',
+      'Full AI analysis',
+      '4 hours of analysis (lifetime)',
+    ],
   },
   {
     key: 'solo',

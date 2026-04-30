@@ -138,6 +138,14 @@ export function BillingPage() {
         )
       : null;
 
+  const quota = status.analysis_quota;
+  const quotaPct = quota
+    ? Math.min(
+        100,
+        Math.round((quota.used_minutes / quota.quota_minutes) * 100),
+      )
+    : null;
+
   return (
     <div className="max-w-lg">
       <button
@@ -231,6 +239,43 @@ export function BillingPage() {
                   style={{ width: `${seatPct}%` }}
                 />
               </div>
+            </div>
+          )}
+
+          {quota && quotaPct !== null && (
+            <div className="mt-3">
+              <div className="flex justify-between text-xs
+                text-gray-500 mb-1"
+              >
+                <span>Analysis used</span>
+                <span>
+                  {quota.used_minutes} / {quota.quota_minutes} min
+                </span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-1.5">
+                <div
+                  className={`h-1.5 rounded-full transition-all
+                    ${quotaPct >= 100
+                      ? 'bg-red-500'
+                      : quotaPct >= 80
+                      ? 'bg-yellow-500'
+                      : 'bg-blue-500'
+                    }`}
+                  style={{ width: `${quotaPct}%` }}
+                />
+              </div>
+              {quotaPct >= 100 && (
+                <p className="text-xs text-red-600 mt-1">
+                  Quota reached.{' '}
+                  <button
+                    onClick={() => navigate('/pricing')}
+                    className="underline"
+                  >
+                    Upgrade
+                  </button>{' '}
+                  for unlimited analysis.
+                </p>
+              )}
             </div>
           )}
         </div>

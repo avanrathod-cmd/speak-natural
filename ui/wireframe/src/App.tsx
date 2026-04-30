@@ -272,7 +272,14 @@ export default function App() {
           />
           <Route
             path="/upload"
-            element={<UploadView onFile={handleFile} />}
+            element={
+              <UploadView
+                onFile={handleFile}
+                quotaReached={
+                  billingStatus?.analysis_quota?.remaining_minutes === 0
+                }
+              />
+            }
           />
           <Route
             path="/processing"

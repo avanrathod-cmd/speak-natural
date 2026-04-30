@@ -127,6 +127,13 @@ class CheckoutResponse(BaseModel):
     checkout_url: str
 
 
+class AnalysisQuota(BaseModel):
+    """Call analysis quota usage. Only present for free-tier orgs."""
+    quota_minutes: int
+    used_minutes: int
+    remaining_minutes: int
+
+
 class BillingStatusResponse(BaseModel):
     plan: str
     status: str
@@ -134,6 +141,7 @@ class BillingStatusResponse(BaseModel):
     seat_limit: int
     seats_used: int
     period_end: Optional[str] = None
+    analysis_quota: Optional[AnalysisQuota] = None
 
 
 class PortalResponse(BaseModel):
