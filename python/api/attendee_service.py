@@ -23,6 +23,7 @@ import uuid
 from base64 import b64decode, b64encode
 from os.path import basename
 
+import mutagen
 import requests
 from fastapi import (
     APIRouter,
@@ -38,6 +39,7 @@ from api.auth import get_current_user
 from api.database import SalesDatabaseService
 from services.audio_processor import ensure_wav_format
 from services.sales_call_processor import SalesCallProcessorService
+from utils.billing_client import QuotaExceededError, check_analysis_quota
 from models.attendee import AttendeeWebhookPayload
 from utils.attendee_utils import (
     get_meeting_platform,
@@ -656,49 +658,64 @@ def _ingest_and_analyze_recording(
             )
             return
 
-        # 3. Download MP4
-        mp4_path = os.path.join(upload_dir, f"{bot_id}.mp4")
-        logger.info(
-            "Downloading recording for bot %s", bot_id
-        )
-        with requests.get(recording_url, stream=True) as r:
-            r.raise_for_status()
-            with open(mp4_path, "wb") as f:
-                shutil.copyfileobj(r.raw, f)
-
-        # 4. Convert to WAV
-        wav_path, _ = ensure_wav_format(mp4_path)
-        audio_filename = basename(wav_path)
-
-        # 5. Create DB record
         event_name = (
             bot_data.metadata.event_name if bot_data.metadata
             else None
         )
         org_id = _db.ensure_org(user_id)
+
+        # 3. Download MP4
+        mp4_path = os.path.join(upload_dir, f"{bot_id}.mp4")
+        logger.info("Downloading recording for bot %s", bot_id)
+        with requests.get(recording_url, stream=True) as r:
+            r.raise_for_status()
+            with open(mp4_path, "wb") as f:
+                shutil.copyfileobj(r.raw, f)
+
+        # 4. Validate file and check quota (fail fast before WAV conversion)
+        duration_seconds = _validate_recording(
+            mp4_path,
+            call_id=call_id, org_id=org_id, user_id=user_id,
+            bot_id=bot_id, event_name=event_name,
+        )
+        if duration_seconds is None:
+            return
+
+        incoming_minutes = duration_seconds // 60
+        if not _enforce_quota(
+            org_id, incoming_minutes,
+            call_id=call_id, user_id=user_id, bot_id=bot_id,
+            event_name=event_name, duration_seconds=duration_seconds,
+        ):
+            return
+
+        # 5. Convert to WAV
+        wav_path, _ = ensure_wav_format(mp4_path)
+        audio_filename = basename(wav_path)
+
+        # 6. Create DB record
         _db.add_row(table="sales_calls", data={
             "org_id": org_id,
             "rep_id": user_id,
             "call_id": call_id,
             "audio_filename": audio_filename,
+            "duration_seconds": duration_seconds,
             "status": "pending",
             "source": "attendee",
             "attendee_bot_id": bot_id,
             **({"call_name": event_name} if event_name else {}),
         })
 
-        # 6. Mark idempotency key before analysis so retries triggered
+        # 7. Mark idempotency key before analysis so retries triggered
         #    by a slow pipeline don't re-download the recording
         _db.add_row(
             table="webhook_idempotency_keys",
             data={"key": idempotency_key},
         )
 
-        # 7. Full pipeline — identical to manual upload from here
+        # 8. Full pipeline — identical to manual upload from here
         logger.info(
-            "Starting analysis for bot %s (call %s)",
-            bot_id,
-            call_id,
+            "Starting analysis for bot %s (call %s)", bot_id, call_id,
         )
         _processor.process_call(
             audio_file_path=wav_path,
@@ -721,6 +738,127 @@ def _ingest_and_analyze_recording(
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+
+def _fail_bot_call(
+    *,
+    call_id: str,
+    org_id: str,
+    user_id: str,
+    bot_id: str,
+    error: str,
+    event_name: str | None = None,
+    duration_seconds: int | None = None,
+) -> None:
+    """Create a sales_calls row with status='failed' for a bot recording."""
+    _db.add_row(table="sales_calls", data={
+        "org_id": org_id,
+        "rep_id": user_id,
+        "call_id": call_id,
+        "status": "failed",
+        "source": "attendee",
+        "attendee_bot_id": bot_id,
+        "error": error,
+        **({"call_name": event_name} if event_name else {}),
+        **({"duration_seconds": duration_seconds}
+           if duration_seconds is not None else {}),
+    })
+
+
+def _validate_recording(
+    mp4_path: str,
+    *,
+    call_id: str,
+    org_id: str,
+    user_id: str,
+    bot_id: str,
+    event_name: str | None,
+) -> int | None:
+    """Validate the downloaded MP4. Returns duration_seconds or None.
+
+    If None, a failed sales_calls row has already been written.
+    """
+    audio_meta = mutagen.File(mp4_path)
+    if audio_meta is None:
+        logger.warning(
+            "Bot %s recording is unreadable — marking failed", bot_id,
+        )
+        _fail_bot_call(
+            call_id=call_id, org_id=org_id, user_id=user_id,
+            bot_id=bot_id, event_name=event_name,
+            error="Could not read recording file.",
+        )
+        return None
+
+    duration_seconds = int(audio_meta.info.length)
+    if duration_seconds < 60:
+        logger.warning(
+            "Bot %s recording is %ds — too short, marking failed",
+            bot_id, duration_seconds,
+        )
+        _fail_bot_call(
+            call_id=call_id, org_id=org_id, user_id=user_id,
+            bot_id=bot_id, event_name=event_name,
+            duration_seconds=duration_seconds,
+            error="Recording too short to analyze (under 60 seconds).",
+        )
+        return None
+
+    return duration_seconds
+
+
+def _enforce_quota(
+    org_id: str,
+    incoming_minutes: int,
+    *,
+    call_id: str,
+    user_id: str,
+    bot_id: str,
+    event_name: str | None,
+    duration_seconds: int,
+) -> bool:
+    """Check analysis quota. Returns True if ok, False if exceeded.
+
+    If False, a failed sales_calls row has already been written.
+    """
+    org_rows = _db.get_rows(
+        table="organizations",
+        filters={"id": org_id},
+        select="minutes_analysed",
+    )
+    sub_rows = _db.get_rows(
+        table="subscriptions",
+        filters={"org_id": org_id},
+        select="plan",
+    )
+    if not org_rows:
+        logger.warning(
+            "No organizations row for org %s — defaulting "
+            "minutes_analysed to 0",
+            org_id,
+        )
+    used_minutes = org_rows[0]["minutes_analysed"] if org_rows else 0
+    # New free-tier users may have no subscriptions row yet.
+    plan = sub_rows[0]["plan"] if sub_rows else "free"
+
+    try:
+        check_analysis_quota(
+            plan=plan,
+            used_minutes=used_minutes,
+            incoming_minutes=incoming_minutes,
+        )
+        return True
+    except QuotaExceededError:
+        logger.info(
+            "Quota exceeded for org %s — marking call failed", org_id,
+        )
+        _fail_bot_call(
+            call_id=call_id, org_id=org_id, user_id=user_id,
+            bot_id=bot_id, event_name=event_name,
+            duration_seconds=duration_seconds,
+            error="Analysis quota exceeded. Upgrade your plan.",
+        )
+        return False
 
 
 def _handle_zoom_connection_invalid(

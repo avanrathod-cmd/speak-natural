@@ -2,10 +2,45 @@
 
 import React, { useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
-export function UploadView({ onFile }: { onFile: (file: File) => void }) {
+export function UploadView({
+  onFile,
+  quotaReached = false,
+}: {
+  onFile: (file: File) => void;
+  quotaReached?: boolean;
+}) {
+  const navigate = useNavigate();
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  if (quotaReached) {
+    return (
+      <div className="border-2 border-dashed border-gray-200 rounded-2xl
+        p-16 text-center bg-gray-50"
+      >
+        <div className="w-16 h-16 bg-red-100 rounded-full flex
+          items-center justify-center mx-auto mb-4"
+        >
+          <Upload className="w-8 h-8 text-red-400" />
+        </div>
+        <h2 className="text-xl font-semibold text-gray-700 mb-2">
+          Analysis quota reached
+        </h2>
+        <p className="text-gray-500 mb-4">
+          You've used all 4 hours of free analysis.
+        </p>
+        <button
+          onClick={() => navigate('/pricing')}
+          className="text-sm font-medium bg-blue-600 text-white
+            rounded-lg px-5 py-2 hover:bg-blue-700"
+        >
+          Upgrade to continue →
+        </button>
+      </div>
+    );
+  }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();

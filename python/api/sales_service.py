@@ -20,6 +20,8 @@ import shutil
 import uuid
 from typing import List, Optional
 
+import mutagen
+
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -49,6 +51,11 @@ from api.models import (
 from services.sales_call_processor import SalesCallProcessorService
 from services.script_generator import ScriptGeneratorService
 from services.audio_processor import ensure_wav_format
+from utils.billing_client import (
+    QuotaExceededError,
+    check_analysis_quota,
+    get_analysis_minutes_limit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -287,15 +294,52 @@ async def upload_sales_call(
         with open(audio_path, "wb") as buf:
             shutil.copyfileobj(audio_file.file, buf)
 
+        duration_seconds = _validate_audio_file(audio_path)
+        incoming_minutes = duration_seconds // 60
+
+        org_id = _db.ensure_org(user_id)
+        org_rows = _db.get_rows(
+            table="organizations",
+            filters={"id": org_id},
+            select="minutes_analysed",
+        )
+        sub_rows = _db.get_rows(
+            table="subscriptions",
+            filters={"org_id": org_id},
+            select="plan",
+        )
+
+        # Defensive: ensure_org should always produce a row; log if missing.
+        if not org_rows:
+            logger.warning(
+                "No organizations row found for org %s after "
+                "ensure_org — defaulting minutes_analysed to 0",
+                org_id,
+            )
+        org = org_rows[0] if org_rows else {"minutes_analysed": 0}
+
+        # New free-tier users may have no subscriptions row yet;
+        # absence means free plan.
+        plan = sub_rows[0]["plan"] if sub_rows else "free"
+
+        try:
+            check_analysis_quota(
+                plan=plan,
+                used_minutes=org["minutes_analysed"],
+                incoming_minutes=incoming_minutes,
+            )
+        except QuotaExceededError as e:
+            raise HTTPException(status_code=402, detail=str(e))
+
         wav_path, _ = ensure_wav_format(audio_path)
         audio_filename = os.path.basename(wav_path)
 
-        org_id = _db.ensure_org(user_id)
         _db.add_row(table="sales_calls", data={
             "org_id": org_id,
             "rep_id": user_id,
             "call_id": call_id,
             "audio_filename": audio_filename,
+            "duration_seconds": duration_seconds,
             "status": "pending",
         })
 
@@ -311,6 +355,9 @@ async def upload_sales_call(
             call_id=call_id, status="pending"
         )
 
+    except HTTPException:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise
     except Exception as e:
         shutil.rmtree(upload_dir, ignore_errors=True)
         raise HTTPException(
@@ -534,11 +581,42 @@ def _process_call_background(
 ) -> None:
     """Background task: run the full call processing pipeline."""
     try:
+        call_rows = _db.get_rows(
+            table="sales_calls",
+            filters={"call_id": call_id},
+            select="org_id, duration_seconds",
+        )
+        if not call_rows:
+            logger.error(
+                "sales_calls row not found for %s — skipping", call_id
+            )
+            return
+
+        org_id = call_rows[0]["org_id"]
+        duration_seconds = call_rows[0].get("duration_seconds") or 0
+        incoming_minutes = duration_seconds // 60
+
         _db.update_rows(
             table="sales_calls",
             data={"status": "processing"},
             filters={"call_id": call_id},
         )
+
+        if incoming_minutes > 0:
+            org_rows = _db.get_rows(
+                table="organizations",
+                filters={"id": org_id},
+                select="minutes_analysed",
+            )
+            current = (
+                org_rows[0]["minutes_analysed"] if org_rows else 0
+            )
+            _db.update_rows(
+                table="organizations",
+                data={"minutes_analysed": current + incoming_minutes},
+                filters={"id": org_id},
+            )
+
         print(f"Started processing call {call_id} for user {user_id}")
         _processor.process_call(
             audio_file_path=audio_path,
@@ -587,6 +665,28 @@ def _reprocess_call_background(
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+
+def _validate_audio_file(path: str) -> int:
+    """Read and validate an audio file. Returns duration in seconds.
+
+    Raises HTTPException 400 if the file is unreadable or under 60s.
+    """
+    audio_meta = mutagen.File(path)
+    if audio_meta is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not read audio file. "
+            "Please upload a valid audio file.",
+        )
+    duration_seconds = int(audio_meta.info.length)
+    if duration_seconds < 60:
+        raise HTTPException(
+            status_code=400,
+            detail="Recording is too short. Please upload a "
+            "call of at least 60 seconds.",
+        )
+    return duration_seconds
 
 def _fetch_call(call_id: str) -> Optional[dict]:
     """Fetch a sales call merged with its analysis row."""

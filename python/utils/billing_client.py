@@ -2,24 +2,41 @@
 
 import logging
 import os
+from dataclasses import dataclass
 
 from dodopayments import DodoPayments
 
 logger = logging.getLogger(__name__)
 
-# Dodo plan IDs (set these in environment variables via the Dodo dashboard).
-# Named "plan" to avoid confusion with the app's own sales `products` table.
-_DODO_PLAN_IDS: dict[str, str] = {
-    "solo":      os.getenv("DODO_SOLO_PLAN_ID", ""),
-    "team":      os.getenv("DODO_TEAM_PLAN_ID", ""),
-    "unlimited": os.getenv("DODO_UNLIMITED_PLAN_ID", ""),
-}
 
-_PLAN_SEAT_LIMITS: dict[str, int] = {
-    "free":      1,
-    "solo":      1,
-    "team":      5,
-    "unlimited": 9999,
+@dataclass(frozen=True)
+class PlanLimits:
+    seat_limit: int
+    analysis_minutes: int | None  # None = unlimited
+    dodo_plan_id: str             # empty string for free (no Dodo product)
+
+
+_PLANS: dict[str, PlanLimits] = {
+    "free": PlanLimits(
+        seat_limit=1,
+        analysis_minutes=240,
+        dodo_plan_id="",
+    ),
+    "solo": PlanLimits(
+        seat_limit=1,
+        analysis_minutes=None,
+        dodo_plan_id=os.getenv("DODO_SOLO_PLAN_ID", ""),
+    ),
+    "team": PlanLimits(
+        seat_limit=5,
+        analysis_minutes=None,
+        dodo_plan_id=os.getenv("DODO_TEAM_PLAN_ID", ""),
+    ),
+    "unlimited": PlanLimits(
+        seat_limit=9999,
+        analysis_minutes=None,
+        dodo_plan_id=os.getenv("DODO_UNLIMITED_PLAN_ID", ""),
+    ),
 }
 
 
@@ -31,23 +48,44 @@ def _client() -> DodoPayments:
     )
 
 
+class QuotaExceededError(Exception):
+    """Raised when an org's analysis quota would be exceeded."""
+
+
 def get_dodo_plan_id(plan: str) -> str:
-    pid = _DODO_PLAN_IDS.get(plan)
-    if not pid:
+    limits = _PLANS.get(plan)
+    if not limits or not limits.dodo_plan_id:
         raise ValueError(f"No Dodo plan ID configured for: {plan}")
-    return pid
+    return limits.dodo_plan_id
 
 
 def get_plan_name(product_id: str) -> str:
-    """Reverse-lookup Dodo product ID → plan name (solo/team/unlimited)."""
-    for name, pid in _DODO_PLAN_IDS.items():
-        if pid and pid == product_id:
+    """Reverse-lookup Dodo product ID → plan name."""
+    for name, limits in _PLANS.items():
+        if limits.dodo_plan_id and limits.dodo_plan_id == product_id:
             return name
     return "solo"
 
 
 def get_seat_limit(plan: str) -> int:
-    return _PLAN_SEAT_LIMITS.get(plan, 1)
+    return _PLANS.get(plan, _PLANS["free"]).seat_limit
+
+
+def get_analysis_minutes_limit(plan: str) -> int | None:
+    """Returns quota in minutes, or None if unlimited."""
+    return _PLANS.get(plan, _PLANS["free"]).analysis_minutes
+
+
+def check_analysis_quota(
+    plan: str, used_minutes: int, incoming_minutes: int
+) -> None:
+    """Raises QuotaExceededError if quota would be exceeded."""
+    limit = get_analysis_minutes_limit(plan)
+    if limit is not None and used_minutes + incoming_minutes > limit:
+        raise QuotaExceededError(
+            f"Free plan limit reached. You have used {used_minutes} of"
+            f" your {limit}-minute analysis quota. Upgrade to continue."
+        )
 
 
 def create_checkout_session(

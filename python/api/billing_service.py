@@ -22,6 +22,7 @@ from api.auth import get_current_user
 from dodopayments.types.subscription import Subscription
 from api.database import SalesDatabaseService
 from api.models import (
+    AnalysisQuota,
     BillingStatusResponse,
     CheckoutRequest,
     CheckoutResponse,
@@ -36,7 +37,6 @@ _db = SalesDatabaseService()
 
 _FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 _BILLING_ROLES = {"owner", "manager"}
-_SEAT_ROLES = {"manager", "rep"}
 
 
 # ---------------------------------------------------------------------------
@@ -110,25 +110,35 @@ async def billing_status(user: dict = Depends(get_current_user)):
         return BillingStatusResponse(
             plan="free", status="active", role=role,
             seat_limit=1, seats_used=0, period_end=None,
+            analysis_quota=_build_analysis_quota(plan="free", used=0),
         )
 
     sub = _get_subscription(org_id)
-    seats_used = _count_seats(org_id)
+    org = _get_org_usage(org_id)
+    seats_used = org.get("seats_used", 0)
+    minutes_analysed = org.get("minutes_analysed", 0)
+
+    plan = sub.get("plan", "free") if sub else "free"
+    analysis_quota = _build_analysis_quota(
+        plan=plan, used=minutes_analysed
+    )
 
     if sub:
         period_end = sub.get("current_period_end")
         return BillingStatusResponse(
-            plan=sub.get("plan", "free"),
+            plan=plan,
             status=sub.get("status", "active"),
             role=role,
             seat_limit=sub.get("seat_limit", 1),
             seats_used=seats_used,
             period_end=str(period_end) if period_end else None,
+            analysis_quota=analysis_quota,
         )
 
     return BillingStatusResponse(
         plan="free", status="active", role=role,
         seat_limit=1, seats_used=seats_used, period_end=None,
+        analysis_quota=analysis_quota,
     )
 
 
@@ -190,14 +200,26 @@ def _get_subscription(org_id: str) -> Optional[dict]:
     return rows[0] if rows else None
 
 
-def _count_seats(org_id: str) -> int:
-    """Count members who consume a paid seat (manager + rep, not owner)."""
+def _get_org_usage(org_id: str) -> dict:
     rows = _db.get_rows(
-        table="user_profiles",
-        filters={"org_id": org_id, "role": list(_SEAT_ROLES)},
-        select="id",
+        table="organizations",
+        filters={"id": org_id},
+        select="seats_used, minutes_analysed",
     )
-    return len(rows)
+    return rows[0] if rows else {}
+
+
+def _build_analysis_quota(
+    plan: str, used: int
+) -> Optional[AnalysisQuota]:
+    limit = billing_client.get_analysis_minutes_limit(plan)
+    if limit is None:
+        return None
+    return AnalysisQuota(
+        quota_minutes=limit,
+        used_minutes=used,
+        remaining_minutes=max(0, limit - used),
+    )
 
 
 def _handle_subscription_event(

@@ -120,7 +120,7 @@ async def invite_member(
         raise HTTPException(status_code=400, detail="No organization found")
 
     if req.role in _SEAT_ROLES:
-        seats_used = _count_seats(org_id)
+        seats_used = _get_seats_used(org_id)
         seat_limit = _get_seat_limit(org_id)
         if seats_used >= seat_limit:
             raise HTTPException(
@@ -184,11 +184,19 @@ async def remove_member(
             status_code=400, detail="Cannot remove yourself"
         )
 
+    profile = _get_profile(member_user_id)
+    removed_role = profile.get("role")
+    org_id = profile.get("org_id")
+
     _db.update_rows(
         table="user_profiles",
         data={"org_id": None, "role": "rep"},
         filters={"id": member_user_id},
     )
+
+    if removed_role in _SEAT_ROLES and org_id:
+        _decrement_seats_used(org_id)
+
     return Response(status_code=204)
 
 
@@ -218,9 +226,12 @@ async def accept_invite(
 ):
     invite = _validate_invite_token(token)
 
+    org_id = invite["org_id"]
+    role = invite["role"]
+
     _db.update_rows(
         table="user_profiles",
-        data={"org_id": invite["org_id"], "role": invite["role"]},
+        data={"org_id": org_id, "role": role},
         filters={"id": user["user_id"]},
     )
     _db.update_rows(
@@ -228,7 +239,11 @@ async def accept_invite(
         data={"accepted_at": datetime.now(timezone.utc).isoformat()},
         filters={"id": invite["id"]},
     )
-    return {"org_id": invite["org_id"]}
+
+    if role in _SEAT_ROLES:
+        _increment_seats_used(org_id)
+
+    return {"org_id": org_id}
 
 
 # ---------------------------------------------------------------------------
@@ -253,14 +268,31 @@ def _require_team_admin(user_id: str) -> dict:
     return profile
 
 
-def _count_seats(org_id: str) -> int:
-    """Count members who consume a paid seat (manager + rep, not owner)."""
+def _get_seats_used(org_id: str) -> int:
     rows = _db.get_rows(
-        table="user_profiles",
-        filters={"org_id": org_id, "role": list(_SEAT_ROLES)},
-        select="id",
+        table="organizations",
+        filters={"id": org_id},
+        select="seats_used",
     )
-    return len(rows)
+    return rows[0]["seats_used"] if rows else 0
+
+
+def _increment_seats_used(org_id: str) -> None:
+    current = _get_seats_used(org_id)
+    _db.update_rows(
+        table="organizations",
+        data={"seats_used": current + 1},
+        filters={"id": org_id},
+    )
+
+
+def _decrement_seats_used(org_id: str) -> None:
+    current = _get_seats_used(org_id)
+    _db.update_rows(
+        table="organizations",
+        data={"seats_used": max(0, current - 1)},
+        filters={"id": org_id},
+    )
 
 
 def _get_seat_limit(org_id: str) -> int:

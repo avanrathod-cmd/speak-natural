@@ -48,6 +48,12 @@ export interface SalesCallListItem {
 
 export type UserRole = 'owner' | 'manager' | 'rep';
 
+export interface AnalysisQuota {
+  quota_minutes: number;
+  used_minutes: number;
+  remaining_minutes: number;
+}
+
 export interface BillingStatus {
   plan: string;
   status: string;
@@ -55,6 +61,7 @@ export interface BillingStatus {
   seat_limit: number;
   seats_used: number;
   period_end: string | null;
+  analysis_quota: AnalysisQuota | null;
 }
 
 export interface TeamMember {
